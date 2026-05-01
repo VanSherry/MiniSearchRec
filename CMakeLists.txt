@@ -329,21 +329,58 @@ endif()
 # ============================================================
 if(BUILD_TESTS)
     enable_testing()
+
+    # ── 独立集成测试（不依赖 GTest）──
+    # 覆盖 v1.1/v1.2 全部修复点
+    set(TEST_ALL_SRCS
+        tests/test_all.cpp
+        ${CORE_SRCS}
+        ${RECALL_SRCS}
+        ${INDEX_SRCS}
+        ${RANK_SRCS}
+        ${FEATURE_SRCS}
+        ${FILTER_SRCS}
+        ${USER_SRCS}
+        ${QUERY_SRCS}
+        ${CACHE_SRCS}
+        ${AB_SRCS}
+        ${SERVICE_SRCS}
+        ${UTILS_SRCS}
+        ${PROTO_SRCS}
+    )
+    add_executable(test_all ${TEST_ALL_SRCS})
+    target_link_libraries(test_all
+        PRIVATE
+        Threads::Threads
+        protobuf::libprotobuf
+        yaml-cpp::yaml-cpp
+        jsoncpp
+        sqlite3
+        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
+        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog_header_only>
+        $<$<BOOL:${LightGBM_FOUND}>:${LIGHTGBM_LIB}>
+    )
+    if(APPLE)
+        target_link_directories(test_all PRIVATE "${HOMEBREW_PREFIX}/opt/abseil/lib")
+        file(GLOB ABSL_LIBS_TEST "${HOMEBREW_PREFIX}/opt/abseil/lib/libabsl_*.dylib")
+        target_link_libraries(test_all PRIVATE ${ABSL_LIBS_TEST})
+    endif()
+    add_test(NAME IntegrationTests COMMAND test_all)
+    message(STATUS "Integration test (test_all) configured")
+
+    # ── GTest 单元测试（可选）──
     find_package(GTest QUIET)
     if(GTest_FOUND)
         set(TEST_SRCS
             tests/test_inverted_index.cpp
-            tests/test_bm25_scorer.cpp
-            tests/test_vector_index.cpp
-            tests/test_pipeline.cpp
         )
         add_executable(test_minisearchrec ${TEST_SRCS} ${ALL_SRCS})
         target_link_libraries(test_minisearchrec
             PRIVATE GTest::gtest GTest::gtest_main
             Threads::Threads protobuf::libprotobuf yaml-cpp::yaml-cpp jsoncpp)
-        add_test(NAME MiniSearchRecTests COMMAND test_minisearchrec)
+        add_test(NAME UnitTests COMMAND test_minisearchrec)
     else()
-        message(WARNING "GTest not found, skipping tests.")
+        message(STATUS "GTest not found, skipping unit tests (test_all still available)")
     endif()
 endif()
 
