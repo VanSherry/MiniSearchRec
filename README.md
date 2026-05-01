@@ -770,6 +770,34 @@ curl -X POST http://localhost:8080/api/v1/doc/add \
 | 模型更新需重启服务 | **双 Buffer 热更新**：`atomic_exchange` 原子切换 Booster，`POST /api/v1/admin/reload_model` 触发，推理线程不中断 |
 | 无集成测试 | `tests/test_all.cpp`：47 项测试，不依赖 GTest，全部通过 |
 
+### v1.3 修复
+
+| 问题 | 修复方案 |
+|------|----------|
+| `inverted_index.cpp` `LoadFromDisk` 使用 `std::ifstream` 但未 `#include <fstream>` | 补充 `#include <fstream>` |
+| `InvertedIndex::Remove` 遍历 `postings_` 时直接 `erase`，迭代器失效 | 改为 `erase(it++)` 安全删除 |
+| `DocStore::GetAllDocIds` 遍历 map 拷贝 key，应直接返回 `vector<string>` | 修正返回逻辑，避免悬空引用 |
+| `pipeline.cpp` 精排阶段 `candidates` 按 `coarse_score` 降序后取 Top-K，但取值前未判空 | 添加非空判断，防止空集合越界 |
+| `app_context.cpp` `Init` 中 `ab_manager_` 未在 `AppContext` 头文件声明成员 | `app_context.h` 补充 `ABTestManager` 成员与 getter |
+| `session.h` 中 `ABOverride` map 使用后未清理，跨请求复用 Session 时参数残留 | `Reset()` 方法中增加 `ab_overrides.clear()` |
+| `query_expander.cpp` 同义词扩展未对 UTF-8 边界做截断保护 | 改用 `string_utils::SafeSubstr` 截断 |
+| `user_features.cpp` 兴趣权重 EMA 更新时 `alpha` 未 clamp，可能超出 [0,1] | 增加 `alpha = std::clamp(alpha, 0.0f, 1.0f)` |
+| `lgbm_ranker.cpp` 内置规则树降级时特征索引硬编码为 6 维，与实际 10 维不对齐 | 规则树统一改为读取 10 维特征数组 |
+| `freshness_scorer.cpp` `decay_rate` 读取 config 时 key 拼写为 `decayRate`（驼峰），与 YAML 中 `decay_rate` 不一致 | 统一改为 `decay_rate` |
+| `redis_client.cpp` Mock 模式下 `Set` 超时逻辑未实现（TTL 参数被忽略） | 添加基于 `steady_clock` 的简单 TTL 过期清除 |
+| `cache_manager.cpp` 生成 cache key 时 uid 未纳入，不同用户共享结果 | cache key 改为 `query + ":" + uid + ":" + page` |
+| `query_parser.cpp` 伪 embedding 生成只做 hash 投影，未进行 L2 归一化（向量召回余弦相似度失真） | 生成后补加 L2 归一化步骤 |
+| `recall_fusion.cpp` RRF 分数计算分母 `k + rank` 中 `rank` 从 0 开始，导致首位权重异常膨胀 | rank 改为从 1 开始计数 |
+| `index_builder.cpp` `BuildFromJson` 未捕获 JSON 解析异常，格式错误文件会崩溃 | 用 try-catch 包裹 `Json::Reader::parse`，打印警告并跳过 |
+| `hot_content_recall.cpp` 热榜快照刷新时未持锁即读取 `last_refresh_time_`，存在数据竞争 | 读取时同样加 `mutex` 锁 |
+| `mmr_reranker.cpp` 相似度矩阵重复计算（i,j 和 j,i 各算一次） | 改为三角矩阵，`sim[j][i] = sim[i][j]` 复用 |
+| `dedup_filter.cpp` Jaccard 计算使用 `set` 求交，复杂度 O(N log N)，应用于大候选集时慢 | 改用 `unordered_set` 降至 O(N) |
+| `spam_filter.cpp` 关键词黑名单大小写不敏感比较使用 `tolower` 逐字符，未处理 UTF-8 多字节字符 | 改用 `string_utils::ToLower`（UTF-8 安全） |
+| `blacklist_filter.cpp` 文件热更新通过 `inotify` 检测，macOS 不支持 | 改为定时轮询（`stat` + mtime 比对），全平台兼容 |
+| `http_server.cpp` 搜索接口未对 `page_size` 上限（100）做服务端强制截断 | `page_size = std::min(page_size, 100)` 服务端保护 |
+| `search_handler.cpp` 超时后直接返回空结果，未将已有的部分召回结果降级返回 | 超时时返回 `session.recall_results` 前 N 条作为降级结果 |
+| `train_rank_model.py` `--incremental` 模式直接覆盖输出文件，原模型无备份 | 训练前将原模型复制为 `.bak` 文件 |
+
 ---
 
 ## 命令行参数
