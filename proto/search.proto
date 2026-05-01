@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package minisearchrec;
 
-import "doc.proto";
-
 // ============================================================
 // 搜索请求/响应模型
 // 参考微信搜推 SearchRequest/SearchResponse
