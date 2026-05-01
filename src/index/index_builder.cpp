@@ -17,9 +17,10 @@ bool IndexBuilder::BuildFromJson(const std::string& json_path) {
     }
 
     Json::Value root;
-    Json::Reader reader;
-    if (!reader.parse(ifs, root)) {
-        std::cerr << "[IndexBuilder] Failed to parse JSON\n";
+    Json::CharReaderBuilder builder;
+    std::string errs;
+    if (!Json::parseFromStream(builder, ifs, &root, &errs)) {
+        std::cerr << "[IndexBuilder] Failed to parse JSON: " << errs << "\n";
         return false;
     }
 
