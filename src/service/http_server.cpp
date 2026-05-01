@@ -76,6 +76,48 @@ void HttpServer::RegisterRoutes() {
         body += ",\"term_count\":" + std::to_string(inv->GetTermCount()) + "}";
         res.set_content(body, "application/json");
     });
+
+    // ── 模型热更新接口 ──
+    // POST /api/v1/admin/reload_model
+    // Body: {"model_path": "./models/rank_model.txt"}
+    // 触发双 Buffer 切换，推理线程不中断
+    server_->Post("/api/v1/admin/reload_model", [](const auto& req, auto& res) {
+        // 简单 JSON 解析：找 "model_path" 字段
+        const std::string& body = req.body;
+        std::string model_path;
+
+        auto pos = body.find("\"model_path\"");
+        if (pos != std::string::npos) {
+            auto q1 = body.find('"', pos + 12);
+            if (q1 != std::string::npos) {
+                auto q2 = body.find('"', q1 + 1);
+                if (q2 != std::string::npos) {
+                    model_path = body.substr(q1 + 1, q2 - q1 - 1);
+                }
+            }
+        }
+
+        if (model_path.empty()) {
+            res.set_content(
+                R"({"ret":400,"err_msg":"missing model_path"})",
+                "application/json");
+            res.status = 400;
+            return;
+        }
+
+        int n = ReloadRankModel(model_path);
+        if (n > 0) {
+            res.set_content(
+                "{\"ret\":0,\"err_msg\":\"\",\"scorers_updated\":" +
+                std::to_string(n) + ",\"model_path\":\"" + model_path + "\"}",
+                "application/json");
+        } else {
+            res.set_content(
+                R"({"ret":500,"err_msg":"HotReload failed, check server log"})",
+                "application/json");
+            res.status = 500;
+        }
+    });
 }
 
 void HttpServer::Run() {

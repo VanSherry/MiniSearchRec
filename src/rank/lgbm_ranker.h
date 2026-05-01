@@ -5,6 +5,12 @@
 // 编译条件：
 //   有 LightGBM：#define HAVE_LIGHTGBM → 调用真实 C API 推理
 //   无 LightGBM：降级到内置决策树规则（同样走树结构，无外部依赖）
+//
+// 热更新设计（双 Buffer）：
+//   - active_booster_   当前推理使用的 Booster（原子指针，无锁读）
+//   - standby_booster_  HotReload 时在后台加载的新 Booster
+//   - 加载完成后原子交换 active/standby，旧 Booster 在 standby 位置等待析构
+//   - 推理线程持有 shared_ptr 引用计数，旧 Booster 在最后一个推理完成后才释放
 // ============================================================
 
 #ifndef MINISEARCHREC_LGBM_SCORER_H
@@ -13,6 +19,9 @@
 #include "core/processor.h"
 #include <string>
 #include <vector>
+#include <atomic>
+#include <mutex>
+#include <memory>
 
 #ifdef HAVE_LIGHTGBM
 #include <LightGBM/c_api.h>
@@ -35,10 +44,24 @@ namespace minisearchrec {
 // ============================================================
 static constexpr int kNumFeatures = 10;
 
+// ============================================================
+// BoosterHandle 的 RAII 包装（用于 shared_ptr 自动释放）
+// ============================================================
+#ifdef HAVE_LIGHTGBM
+struct BoosterDeleter {
+    void operator()(void* p) const {
+        if (p) LGBM_BoosterFree(p);
+    }
+};
+using BoosterPtr = std::shared_ptr<void>;  // void* = BoosterHandle
+#else
+using BoosterPtr = std::shared_ptr<void>;  // 无 LightGBM 时只是占位
+#endif
+
 class LGBMScorerProcessor : public BaseScorerProcessor {
 public:
     LGBMScorerProcessor() = default;
-    ~LGBMScorerProcessor() override;
+    ~LGBMScorerProcessor() override = default;  // shared_ptr 自动释放 Booster
 
     int Process(Session& session,
                 std::vector<DocCandidate>& candidates) override;
@@ -46,28 +69,44 @@ public:
     std::string Name() const override { return "LGBMScorerProcessor"; }
     bool Init(const YAML::Node& config) override;
 
-    // 加载模型文件（models/rank_model.txt）
+    // 初始加载模型（启动时调用）
     bool LoadModel(const std::string& model_path);
 
-    // 是否已加载真实 LightGBM 模型
-    bool HasRealModel() const { return model_loaded_; }
+    // 热更新：后台加载新模型，加载完成后原子切换 active buffer
+    // 线程安全，推理线程不受影响（推理期间持有旧 BoosterPtr 引用）
+    // 返回：true=切换成功，false=新模型加载失败（保持旧模型）
+    bool HotReload(const std::string& new_model_path);
+
+    // 当前使用的模型路径
+    std::string CurrentModelPath() const {
+        std::lock_guard<std::mutex> lk(meta_mutex_);
+        return model_path_;
+    }
+
+    bool HasRealModel() const { return model_loaded_.load(); }
 
 private:
-    std::string model_path_;
-    bool model_loaded_ = false;
+    // ── 双 Buffer 核心 ──
+    // 推理时 acquire active_booster_（shared_ptr，引用计数保证安全）
+    // HotReload 时只写 standby，切换完成后 swap active/standby
+    mutable std::mutex      reload_mutex_;   // 保护 HotReload 并发
+    mutable std::mutex      meta_mutex_;     // 保护 model_path_ 等元信息
+    std::shared_ptr<BoosterPtr> active_booster_;   // 原子可见的活跃 Booster
+    // 使用 shared_ptr<BoosterPtr> 包一层，atomic_load/atomic_store 操作
 
-#ifdef HAVE_LIGHTGBM
-    BoosterHandle booster_ = nullptr;
-#endif
+    std::atomic<bool> model_loaded_{false};
+    std::string       model_path_;
+    float             weight_cached_ = 1.0f;
 
-    // 特征提取：Session + DocCandidate → float[kNumFeatures]
+    // 从文件加载一个新 BoosterPtr（不影响 active_booster_）
+    BoosterPtr LoadBoosterFromFile(const std::string& path) const;
+
     std::vector<float> ExtractFeatures(const Session& session,
                                        const DocCandidate& cand) const;
 
-    // 推理入口：有模型走 C API，无模型走内置规则树
-    float Predict(const std::vector<float>& features) const;
+    float Predict(const BoosterPtr& booster,
+                  const std::vector<float>& features) const;
 
-    // 内置规则树（无 LightGBM 时降级，但仍然走树结构判断）
     float PredictBuiltinTree(const std::vector<float>& features) const;
 };
 

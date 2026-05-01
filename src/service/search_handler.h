@@ -16,19 +16,19 @@ class SearchHandler {
 public:
     SearchHandler() = default;
 
-    // 处理搜索请求
     void Handle(const httplib::Request& req, httplib::Response& res);
 
 private:
-    // 解析请求体
     bool ParseRequest(const std::string& body, SearchRequest& request);
-
-    // 构建 Session 并执行 Pipeline
-    int DoSearch(const SearchRequest& request, SearchResponse& response);
-
-    // 序列化响应
+    int  DoSearch(const SearchRequest& request, SearchResponse& response);
     std::string SerializeResponse(const SearchResponse& response);
 };
+
+// ── 模型热更新接口 ──
+// 触发 SearchPipeline 单例上所有 LGBMScorerProcessor 的双 Buffer 热更新。
+// 返回成功切换的 scorer 数量，0 表示失败或无 LGBM scorer。
+// 线程安全：可在服务运行期间随时调用。
+int ReloadRankModel(const std::string& new_model_path);
 
 } // namespace minisearchrec
 

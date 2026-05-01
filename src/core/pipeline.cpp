@@ -5,6 +5,7 @@
 
 #include "core/pipeline.h"
 #include "core/config_manager.h"
+#include "rank/lgbm_ranker.h"
 #include "utils/logger.h"
 #include <chrono>
 #include <algorithm>
@@ -558,6 +559,38 @@ int Pipeline::ExecutePostProcess(Session& session) {
     LOG_INFO("ExecutePostProcess completed - trace_id={}, final_count={}",
              session.trace_id, session.counts.final_count);
     return 0;
+}
+
+int Pipeline::HotReloadFineScorer(const std::string& new_model_path) {
+    if (new_model_path.empty()) {
+        LOG_WARN("Pipeline::HotReloadFineScorer: empty model path");
+        return 0;
+    }
+
+    int success_count = 0;
+    for (auto& scorer : fine_scorers_) {
+        if (!scorer) continue;
+        // dynamic_cast 检查是否为 LGBMScorerProcessor
+        auto* lgbm = dynamic_cast<LGBMScorerProcessor*>(scorer.get());
+        if (!lgbm) continue;
+
+        LOG_INFO("Pipeline::HotReloadFineScorer: reloading {} with {}",
+                 scorer->Name(), new_model_path);
+
+        if (lgbm->HotReload(new_model_path)) {
+            ++success_count;
+            LOG_INFO("Pipeline::HotReloadFineScorer: {} hot-swap complete",
+                     scorer->Name());
+        } else {
+            LOG_ERROR("Pipeline::HotReloadFineScorer: {} hot-swap failed, "
+                      "old model still active", scorer->Name());
+        }
+    }
+
+    if (success_count == 0) {
+        LOG_WARN("Pipeline::HotReloadFineScorer: no LGBM scorer found or all failed");
+    }
+    return success_count;
 }
 
 void Pipeline::BuildResponse(Session& session) {

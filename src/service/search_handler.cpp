@@ -243,4 +243,14 @@ std::string SearchHandler::SerializeResponse(const SearchResponse& response) {
     return Json::writeString(writer, root);
 }
 
+// ============================================================
+// ReloadRankModel：触发 Pipeline 单例的双 Buffer 热更新
+// ============================================================
+int ReloadRankModel(const std::string& new_model_path) {
+    Pipeline& pipeline = GetSearchPipeline();
+    int n = pipeline.HotReloadFineScorer(new_model_path);
+    LOG_INFO("ReloadRankModel: path={}, scorers_updated={}", new_model_path, n);
+    return n;
+}
+
 } // namespace minisearchrec

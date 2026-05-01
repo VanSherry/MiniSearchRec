@@ -13,6 +13,7 @@
 #include <yaml-cpp/yaml.h>
 #include "session.h"
 #include "processor.h"
+#include "rank/lgbm_ranker.h"
 
 namespace minisearchrec {
 
@@ -75,6 +76,12 @@ public:
     bool IsLoaded() const { return loaded_; }
 
     int Execute(Session& session);
+
+    // ── 热更新接口 ──
+    // 遍历 fine_scorers_，对所有 LGBMScorerProcessor 触发 HotReload。
+    // 线程安全：推理线程正在服务时调用同样安全（双 Buffer 保证）。
+    // 返回成功切换的 scorer 数量（0 表示无 LGBM scorer 或全部失败）。
+    int HotReloadFineScorer(const std::string& new_model_path);
 
     // A/B：允许外部在 session 中注入实验参数覆盖，
     // Pipeline 读取 session.ab_params 动态调整行为
