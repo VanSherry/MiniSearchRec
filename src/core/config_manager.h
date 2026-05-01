@@ -41,6 +41,14 @@ struct GlobalConfig {
         std::string redis_host = "127.0.0.1";
         int default_ttl_seconds = 300;
     } cache;
+
+    struct EmbeddingConfig {
+        std::string provider = "pseudo";   // pseudo / http
+        int dim = 64;
+        std::string endpoint;              // http 模式
+        std::string model;
+        std::string api_key;
+    } embedding;
 };
 
 class ConfigManager {
@@ -62,6 +70,8 @@ public:
     const YAML::Node& GetRankConfig() const { return rank_config_; }
     const YAML::Node& GetFilterConfig() const { return filter_config_; }
 
+    bool IsLoaded() const { return loaded_; }
+
     bool Reload();
 
 private:
@@ -78,6 +88,7 @@ private:
     YAML::Node rank_config_;
     YAML::Node filter_config_;
     std::string config_dir_;
+    bool loaded_ = false;
     mutable std::mutex mutex_;
 };
 

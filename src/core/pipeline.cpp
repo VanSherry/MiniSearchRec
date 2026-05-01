@@ -5,7 +5,9 @@
 
 #include "core/pipeline.h"
 #include "core/config_manager.h"
+#include "core/app_context.h"
 #include "rank/lgbm_ranker.h"
+#include "recall/vector_recall.h"
 #include "utils/logger.h"
 #include <chrono>
 #include <algorithm>
@@ -321,6 +323,13 @@ int Pipeline::ExecuteRecall(Session& session) {
                     tasks[idx].ret = -1;
                     return;
                 }
+
+                // 为 VectorRecallProcessor 注入 VectorIndex
+                auto* vec_proc = dynamic_cast<VectorRecallProcessor*>(processor.get());
+                if (vec_proc) {
+                    vec_proc->SetVectorIndex(AppContext::Instance().GetVectorIndex());
+                }
+
                 if (!processor->Init(stage_params)) {
                     LOG_WARN("Recall processor {} Init() failed", stage_name);
                     tasks[idx].ret = -1;

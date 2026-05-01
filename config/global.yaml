@@ -36,3 +36,13 @@ cache:
 pipeline:
   final_result_count: 20
   enable_cache: true
+
+# Embedding 向量服务配置
+# 切换真实模型只需修改此处，无需改代码
+embedding:
+  provider: "pseudo"       # pseudo（内置伪向量） / http（远程服务）
+  dim: 64                  # 输出维度：pseudo=64, bge-small=384, bge-base=768
+  # --- 以下仅 provider=http 时生效 ---
+  # endpoint: "http://localhost:8000/v1/embeddings"
+  # model: "bge-base-zh-v1.5"
+  # api_key: ""

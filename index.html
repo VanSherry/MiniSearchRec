@@ -544,14 +544,14 @@ footer a:hover{text-decoration:underline}
       </div>
       <div class="pipe-panel" id="pp1">
         <div class="pipe-title">Query 理解</div>
-        <div class="pipe-desc">全角转半角、停用词过滤、中文分词（cppjieba / 降级单字分词），预计算每个词的 IDF 权重，同义词扩展。<strong>自动生成 64 维伪 embedding（词袋 hash 投影 + L2 归一化）</strong>，确保向量召回开箱即用。若部署真实 embedding 服务，在 QueryParser 替换调用即可。</div>
+        <div class="pipe-desc">全角转半角、停用词过滤、中文分词（cppjieba / 降级单字分词），预计算每个词的 IDF 权重，同义词扩展。<strong>EmbeddingProvider 配置驱动生成 embedding（默认 64 维伪向量，global.yaml 一键切换 BGE/OpenAI 等真实模型）</strong>，向量召回开箱即用。</div>
         <div class="pipe-flow">
           <div class="pf-box">原始 Query</div><span class="pf-sep">→</span>
           <div class="pf-box">归一化</div><span class="pf-sep">→</span>
           <div class="pf-box">分词</div><span class="pf-sep">→</span>
           <div class="pf-box">同义词扩展</div><span class="pf-sep">→</span>
           <div class="pf-box">IDF 预算</div><span class="pf-sep">→</span>
-          <div class="pf-box">伪 Embedding</div><span class="pf-sep">→</span>
+          <div class="pf-box">EmbeddingProvider</div><span class="pf-sep">→</span>
           <div class="pf-box">QPInfo</div>
         </div>
         <div class="pipe-kpis">
@@ -893,8 +893,8 @@ footer a:hover{text-decoration:underline}
         <tr><td>SpamFilter + BlacklistFilter</td><td>Trust &amp; Safety</td><td><span class="ok">✓ 已启用</span></td></tr>
         <tr><td>双 Buffer 热更新（reload_model API）</td><td>ML Platform Hot Swap</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>Session deadline + IsTimedOut()</td><td>Stage Timeout</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>QueryParser 伪 64 维 embedding</td><td>Query Tower</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>test_all 47 项集成测试</td><td>Integration Testing</td><td><span class="ok">✓ 47/47 通过</span></td></tr>
+        <tr><td>EmbeddingProvider（配置驱动 pseudo/http）</td><td>Query Tower</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>test_all 52 项集成测试</td><td>Integration Testing</td><td><span class="ok">✓ 52/52 通过</span></td></tr>
       </tbody>
     </table>
   </div>

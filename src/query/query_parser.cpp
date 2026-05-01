@@ -12,48 +12,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
-#include <cmath>
 #include <functional>
 
 namespace minisearchrec {
-
-// ============================================================
-// 生成轻量伪 query embedding（词袋 BoW 哈希投影）
-// 用途：在没有外部 embedding 服务时，让 VectorRecall 流程可以正常运行。
-// 实现：把每个 term 的 hash 值散射到 kEmbDim 维归一化向量。
-// 注意：若部署了真实 embedding 服务，在此处替换调用即可。
-// ============================================================
-static constexpr int kEmbDim = 64;  // 与 VectorIndex 构建时的维度保持一致
-
-static std::vector<float> BuildPseudoEmbedding(
-    const std::vector<std::string>& terms)
-{
-    std::vector<float> emb(kEmbDim, 0.0f);
-    if (terms.empty()) return emb;
-
-    std::hash<std::string> hasher;
-    for (const auto& term : terms) {
-        size_t h = hasher(term);
-        // 将 hash 值散射到多个维度
-        for (int d = 0; d < kEmbDim; ++d) {
-            // 不同维度用不同的 hash 混合
-            size_t hd = h ^ (static_cast<size_t>(d) * 2654435761ULL);
-            // 映射到 [-1, 1]
-            float val = static_cast<float>(static_cast<int32_t>(hd & 0xFFFFFF))
-                        / static_cast<float>(0x800000);
-            emb[d] += val;
-        }
-    }
-
-    // L2 归一化
-    float norm = 0.0f;
-    for (float v : emb) norm += v * v;
-    if (norm > 1e-8f) {
-        norm = std::sqrt(norm);
-        for (float& v : emb) v /= norm;
-    }
-    return emb;
-}
 
 void QueryParser::Parse(const std::string& raw_query, QPInfo& qp_info) const {
     // 1. 设置原始查询
@@ -79,10 +40,11 @@ void QueryParser::Parse(const std::string& raw_query, QPInfo& qp_info) const {
         qp_info.term_idf[term] = 1.0f;  // 实际项目需从索引获取
     }
 
-    // 7. 生成 query embedding（词袋伪向量，保证 VectorRecall 流程可运行）
+    // 7. 通过 EmbeddingProvider 生成 query embedding（配置驱动，一键切换）
     //    若已有外部服务填充了 query_embedding，跳过此步。
     if (qp_info.query_embedding.empty() && !qp_info.terms.empty()) {
-        qp_info.query_embedding = BuildPseudoEmbedding(qp_info.terms);
+        auto provider = AppContext::Instance().GetEmbeddingProvider();
+        qp_info.query_embedding = provider->Encode(raw_query);
     }
 }
 

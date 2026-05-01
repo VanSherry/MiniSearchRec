@@ -76,12 +76,26 @@ bool ConfigManager::LoadGlobalConfig(const std::string& path) {
                 config["cache"]["default_ttl_seconds"].as<int>(300);
         }
 
+        if (config["embedding"]) {
+            global_config_.embedding.provider =
+                config["embedding"]["provider"].as<std::string>("pseudo");
+            global_config_.embedding.dim =
+                config["embedding"]["dim"].as<int>(64);
+            global_config_.embedding.endpoint =
+                config["embedding"]["endpoint"].as<std::string>("");
+            global_config_.embedding.model =
+                config["embedding"]["model"].as<std::string>("");
+            global_config_.embedding.api_key =
+                config["embedding"]["api_key"].as<std::string>("");
+        }
+
         // 配置合法性校验
         if (!ValidateGlobalConfig()) {
             LOG_ERROR("Global config validation failed for file: {}", path);
             return false;
         }
 
+        loaded_ = true;
         LOG_INFO("Successfully loaded global config from: {}", path);
 
     } catch (const YAML::Exception& e) {

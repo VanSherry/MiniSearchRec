@@ -3,6 +3,7 @@
 // ============================================================
 
 #include "core/app_context.h"
+#include "core/config_manager.h"
 #include "utils/logger.h"
 #include <filesystem>
 #include <fstream>
@@ -19,12 +20,27 @@ bool AppContext::Initialize(const std::string& data_dir,
     LOG_INFO("AppContext initializing, data_dir={}, index_dir={}, rebuild={}",
              data_dir, index_dir, rebuild_on_start);
 
+    // 0. 创建 Embedding 提供器（从配置驱动）
+    auto& cfg_mgr = ConfigManager::Instance();
+    YAML::Node emb_cfg;
+    if (cfg_mgr.IsLoaded()) {
+        const auto& emb = cfg_mgr.GetGlobalConfig().embedding;
+        emb_cfg["provider"] = emb.provider;
+        emb_cfg["dim"] = emb.dim;
+        emb_cfg["endpoint"] = emb.endpoint;
+        emb_cfg["model"] = emb.model;
+        emb_cfg["api_key"] = emb.api_key;
+    }
+    embedding_provider_ = EmbeddingProviderFactory::Create(emb_cfg);
+    LOG_INFO("EmbeddingProvider: type={}, dim={}",
+             embedding_provider_->Name(), embedding_provider_->GetDim());
+
     // 1. 创建倒排索引实例
     inverted_index_ = std::make_shared<InvertedIndex>();
 
-    // 2. 创建向量索引实例（默认 768 维，无 Faiss 时降级为暴力搜索）
+    // 2. 创建向量索引实例（维度从 EmbeddingProvider 获取，保证一致）
     VectorIndexConfig vec_cfg;
-    vec_cfg.dim = 768;
+    vec_cfg.dim = embedding_provider_->GetDim();
     vector_index_ = std::make_shared<VectorIndex>(vec_cfg);
 
     // 3. 创建文档存储（SQLite）

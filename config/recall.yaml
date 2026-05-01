@@ -25,10 +25,15 @@ recall_stages:
       refresh_interval_sec: 300   # 热榜缓存刷新间隔（秒）
 
   # 向量召回：使用词袋伪 embedding（QueryParser 自动生成），无需外部服务
-  # 若部署了真实 embedding 服务，在 query_parser.cpp 替换 BuildPseudoEmbedding 即可
+  # 切换真实 embedding 时：
+  #   1. 修改 embedding_dim 为模型输出维度（如 768）
+  #   2. 在 query_parser.cpp 替换 BuildPseudoEmbedding 为真实服务调用
+  #   3. 在 index_builder.cpp 替换 BuildDocEmbedding 为真实服务调用
+  #   4. 删除旧的 vector.faiss 索引文件，重新构建
   - name: "VectorRecallProcessor"
     enable: true
     max_recall: 200
     params:
       top_k: 200
       similarity_threshold: 0.3   # 伪 embedding 相似度阈值适当调低
+      embedding_dim: 64            # 当前伪 embedding 维度；真实模型改为 768/384

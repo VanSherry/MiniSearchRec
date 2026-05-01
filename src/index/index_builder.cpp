@@ -3,6 +3,7 @@
 // ============================================================
 
 #include "index/index_builder.h"
+#include "core/app_context.h"
 #include <json/json.h>
 #include <fstream>
 #include <iostream>
@@ -83,6 +84,15 @@ bool IndexBuilder::BuildFromDocs(const std::vector<Document>& docs) {
             doc.content_length()
         );
 
+        // 添加到向量索引（通过 EmbeddingProvider 生成向量）
+        if (vec_idx_) {
+            auto provider = AppContext::Instance().GetEmbeddingProvider();
+            if (provider) {
+                auto emb = provider->Encode(doc.title() + " " + doc.content());
+                vec_idx_->AddVector(doc.doc_id(), emb);
+            }
+        }
+
         // 存储到 SQLite
         doc_store_->PutDoc(doc);
     }
@@ -115,6 +125,15 @@ bool IndexBuilder::AddDocument(const Document& doc) {
         tags,
         doc.content_length()
     );
+
+    // 添加到向量索引（通过 EmbeddingProvider 生成向量）
+    if (vec_idx_) {
+        auto provider = AppContext::Instance().GetEmbeddingProvider();
+        if (provider) {
+            auto emb = provider->Encode(doc.title() + " " + doc.content());
+            vec_idx_->AddVector(doc.doc_id(), emb);
+        }
+    }
 
     return true;
 }
