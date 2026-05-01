@@ -329,12 +329,12 @@ footer a:hover{text-decoration:underline}
     <div class="orb orb2"></div>
     <div class="orb orb3"></div>
   </div>
-  <div class="hero-eyebrow">C++17 · 完整可运行 · MIT 开源</div>
+  <div class="hero-eyebrow">C++17 · 完整可运行 · MIT 开源 · 47项测试通过</div>
   <h1>
     工业级<br>
     <span class="line2">搜索推荐引擎</span>
   </h1>
-  <p class="hero-desc">从召回到精排的完整搜索链路，包含 LightGBM 离线训练闭环，每个模块均已实现并验证运行。</p>
+  <p class="hero-desc">从召回到精排的完整搜索链路，包含 LightGBM 离线训练闭环与双 Buffer 热更新，每个模块均已实现并通过 47 项集成测试。</p>
   <div class="hero-cta">
     <a class="btn btn-primary" href="#pipeline">探索架构 →</a>
     <a class="btn btn-ghost" href="https://github.com/VanSherry/MiniSearchRec" target="_blank">
@@ -361,6 +361,11 @@ footer a:hover{text-decoration:underline}
     <div class="stat">
       <div class="stat-num" style="color:var(--purple)" id="cnt-modules">0</div>
       <div class="stat-label">核心模块</div>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat">
+      <div class="stat-num" style="color:var(--green)" id="cnt-tests">0</div>
+      <div class="stat-label">集成测试通过</div>
     </div>
   </div>
 </div>
@@ -461,8 +466,8 @@ footer a:hover{text-decoration:underline}
       <div style="display:flex;align-items:flex-start;gap:32px;flex-wrap:wrap">
         <div style="flex:1;min-width:240px">
           <div class="b-eye" style="color:var(--pink)">训练闭环</div>
-          <h3 style="font-size:22px">在线行为 → 离线训练 → 模型更新</h3>
-          <p>无需人工标注，点击/点赞/停留自动转化为训练标签，系统持续自我优化</p>
+          <h3 style="font-size:22px">在线行为 → 离线训练 → 双 Buffer 热更新</h3>
+          <p>无需人工标注，点击/点赞/停留自动转化为训练标签，训练完成后 POST 一个接口即可切换新模型，服务全程不停机</p>
         </div>
         <div style="display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow-x:auto">
           <div style="text-align:center;padding:0 12px">
@@ -492,6 +497,8 @@ footer a:hover{text-decoration:underline}
         <span class="b-tag" style="background:rgba(255,107,157,.12);color:var(--pink);border:1px solid rgba(255,107,157,.2)">增量训练</span>
         <span class="b-tag" style="background:rgba(255,107,157,.12);color:var(--pink);border:1px solid rgba(255,107,157,.2)">版本管理</span>
         <span class="b-tag" style="background:rgba(255,107,157,.12);color:var(--pink);border:1px solid rgba(255,107,157,.2)">自动 label</span>
+        <span class="b-tag" style="background:rgba(255,107,157,.12);color:var(--pink);border:1px solid rgba(255,107,157,.2)">双 Buffer 热更新</span>
+        <span class="b-tag" style="background:rgba(255,107,157,.12);color:var(--pink);border:1px solid rgba(255,107,157,.2)">服务不停机</span>
       </div>
     </div>
   </div>
@@ -537,19 +544,20 @@ footer a:hover{text-decoration:underline}
       </div>
       <div class="pipe-panel" id="pp1">
         <div class="pipe-title">Query 理解</div>
-        <div class="pipe-desc">全角转半角、停用词过滤、中文分词（cppjieba / 降级单字分词），预计算每个词的 IDF 权重，可选同义词扩展。</div>
+        <div class="pipe-desc">全角转半角、停用词过滤、中文分词（cppjieba / 降级单字分词），预计算每个词的 IDF 权重，同义词扩展。<strong>自动生成 64 维伪 embedding（词袋 hash 投影 + L2 归一化）</strong>，确保向量召回开箱即用。若部署真实 embedding 服务，在 QueryParser 替换调用即可。</div>
         <div class="pipe-flow">
           <div class="pf-box">原始 Query</div><span class="pf-sep">→</span>
           <div class="pf-box">归一化</div><span class="pf-sep">→</span>
           <div class="pf-box">分词</div><span class="pf-sep">→</span>
           <div class="pf-box">同义词扩展</div><span class="pf-sep">→</span>
           <div class="pf-box">IDF 预算</div><span class="pf-sep">→</span>
+          <div class="pf-box">伪 Embedding</div><span class="pf-sep">→</span>
           <div class="pf-box">QPInfo</div>
         </div>
         <div class="pipe-kpis">
           <div class="kpi"><div class="kpi-val" style="color:var(--blue)">terms[]</div><div class="kpi-label">输出分词</div></div>
           <div class="kpi"><div class="kpi-val" style="color:var(--green)">2–5ms</div><div class="kpi-label">典型耗时</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">可选</div><div class="kpi-label">Query Embedding</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">64维</div><div class="kpi-label">Query Embedding</div></div>
         </div>
       </div>
       <div class="pipe-panel" id="pp2">
@@ -585,8 +593,8 @@ footer a:hover{text-decoration:underline}
         </div>
       </div>
       <div class="pipe-panel" id="pp4">
-        <div class="pipe-title">LightGBM 精排</div>
-        <div class="pipe-desc">提取 <strong>10 维特征</strong>（query_len、bm25、quality、freshness、log_click、log_like、title_len、tag_match_count、category_match、recall_source_id），调用 LGBM_BoosterPredictForMat C API 批量推理。无模型时降级内置 3 棵决策树 ensemble，始终有精排分输出。</div>
+        <div class="pipe-title">LightGBM 精排 + 双 Buffer 热更新</div>
+        <div class="pipe-desc">提取 <strong>10 维特征</strong>，调用预初始化的 Booster（启动时加载一次，不再每请求重建）。<strong>双 Buffer 热更新</strong>：训练完成后 POST <code>/api/v1/admin/reload_model</code>，后台加载新 Booster，<code>atomic_exchange</code> 原子切换 active buffer，推理线程持有旧 Booster 引用直到完成——服务全程不停机。</div>
         <div class="pipe-flow">
           <div class="pf-box">10 维特征</div><span class="pf-sep">→</span>
           <div class="pf-box">LGBM C API</div><span class="pf-sep">→</span>
@@ -596,7 +604,7 @@ footer a:hover{text-decoration:underline}
         <div class="pipe-kpis">
           <div class="kpi"><div class="kpi-val" style="color:var(--blue)">100</div><div class="kpi-label">输出候选</div></div>
           <div class="kpi"><div class="kpi-val" style="color:var(--green)">5–20ms</div><div class="kpi-label">典型耗时</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--purple)">LambdaRank</div><div class="kpi-label">训练目标</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--purple)">热更新</div><div class="kpi-label">不停机切换</div></div>
         </div>
       </div>
       <div class="pipe-panel" id="pp5">
@@ -838,6 +846,7 @@ footer a:hover{text-decoration:underline}
     <div class="api-item"><span class="method m-post">POST</span><span class="api-path">/api/v1/event/like</span><span class="api-desc">上报点赞，更新用户 category_weights</span></div>
     <div class="api-item"><span class="method m-post">POST</span><span class="api-path">/api/v1/event/dwell</span><span class="api-desc">上报停留时长，生成弱正样本</span></div>
     <div class="api-item"><span class="method m-post">POST</span><span class="api-path">/api/v1/event/dismiss</span><span class="api-desc">上报负反馈，生成负样本</span></div>
+    <div class="api-item"><span class="method m-post">POST</span><span class="api-path">/api/v1/admin/reload_model</span><span class="api-desc">双 Buffer 热更新，不停机切换 LightGBM 模型</span></div>
   </div>
 </div>
 </section>
@@ -882,6 +891,10 @@ footer a:hover{text-decoration:underline}
         <tr><td>ABTest（已接入 Pipeline）</td><td>FeatureSwitch</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>std::async 并行召回</td><td>BatchTask</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>SpamFilter + BlacklistFilter</td><td>Trust &amp; Safety</td><td><span class="ok">✓ 已启用</span></td></tr>
+        <tr><td>双 Buffer 热更新（reload_model API）</td><td>ML Platform Hot Swap</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>Session deadline + IsTimedOut()</td><td>Stage Timeout</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>QueryParser 伪 64 维 embedding</td><td>Query Tower</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>test_all 47 项集成测试</td><td>Integration Testing</td><td><span class="ok">✓ 47/47 通过</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -984,7 +997,8 @@ const heroObs=new IntersectionObserver(entries=>{
   if(entries[0].isIntersecting){
     setTimeout(()=>counter(document.getElementById('cnt-files'),117),200);
     setTimeout(()=>counter(document.getElementById('cnt-recall'),4),400);
-    setTimeout(()=>counter(document.getElementById('cnt-modules'),20),600);
+    setTimeout(()=>counter(document.getElementById('cnt-modules'),22),600);
+    setTimeout(()=>counter(document.getElementById('cnt-tests'),47),800);
     heroObs.disconnect();
   }
 });
