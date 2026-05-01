@@ -18,10 +18,13 @@
 
 // 项目头文件
 #include "core/session.h"
+#include "core/processor.h"
 #include "rank/freshness_scorer.h"
 #include "rank/mmr_reranker.h"
 #include "rank/lgbm_ranker.h"
+#include "recall/vector_recall.h"
 #include "recall/hot_content_recall.h"
+#include "index/vector_index.h"
 #include "user/user_interest_updater.h"
 #include "ab/ab_test.h"
 #include "query/query_parser.h"
@@ -498,6 +501,56 @@ void test_feature_dimension() {
 }
 
 // ============================================================
+// VectorRecallProcessor - 无 Faiss 降级暴力搜索测试
+// ============================================================
+void test_vector_recall_fallback() {
+    SECTION("VectorRecallProcessor - 无 Faiss 降级模式");
+
+    VectorRecallProcessor proc;
+    YAML::Node cfg;
+    cfg["enable"] = true;
+    cfg["top_k"] = 10;
+    cfg["similarity_threshold"] = 0.0f;  // 阈值设为0，全部通过
+    proc.Init(cfg);
+
+    // 构建伪 VectorIndex（暴力搜索 fallback 模式，无需 Faiss）
+    auto vec_idx = std::make_shared<VectorIndex>(VectorIndexConfig{64 /*dim*/});
+    proc.SetVectorIndex(vec_idx);
+
+    // 添加几条文档向量
+    std::vector<float> emb_a(64, 0.1f); emb_a[0] = 0.9f;  // doc_a 方向
+    std::vector<float> emb_b(64, 0.1f); emb_b[1] = 0.9f;  // doc_b 方向
+    vec_idx->AddVector("doc_a", emb_a);
+    vec_idx->AddVector("doc_b", emb_b);
+
+    // 查询向量接近 doc_a
+    Session session;
+    session.qp_info.query_embedding = emb_a;  // 和 doc_a 完全相同
+
+    int ret = proc.Process(session);
+    EXPECT(ret == 0, "VectorRecallProcess::Process 返回0");
+    EXPECT(session.recall_results.size() >= 1, "召回结果非空");
+
+    // 验证 doc_a 被召回（相似度最高）
+    bool found_a = false;
+    for (const auto& c : session.recall_results) {
+        if (c.doc_id == "doc_a") found_a = true;
+    }
+    EXPECT(found_a, "相似度最高的 doc_a 被召回");
+
+    // 测试 enable=false 时跳过
+    VectorRecallProcessor proc2;
+    YAML::Node cfg2;
+    cfg2["enable"] = false;
+    proc2.Init(cfg2);
+    Session session2;
+    session2.qp_info.query_embedding = emb_a;
+    int ret2 = proc2.Process(session2);
+    EXPECT(ret2 == 0, "enable=false 时 Process 返回0（跳过）");
+    EXPECT(session2.recall_results.empty(), "enable=false 时无召回结果");
+}
+
+// ============================================================
 // MMR A/B 覆盖：session.ab_override.mmr_lambda 生效
 // ============================================================
 void test_mmr_ab_override() {
@@ -558,6 +611,7 @@ int main() {
     test_hot_content_cache();
     test_cache_key_includes_uid();
     test_feature_dimension();
+    test_vector_recall_fallback();
     test_mmr_ab_override();
 
     std::cout << "\n====================================================\n";

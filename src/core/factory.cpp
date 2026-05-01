@@ -9,7 +9,7 @@
 #include "recall/inverted_recall.h"
 #include "recall/user_history_recall.h"
 #include "recall/hot_content_recall.h"
-// #include "recall/vector_recall.h"  // V1 阶段开启
+#include "recall/vector_recall.h"
 
 // 打分处理器
 #include "rank/bm25_scorer.h"
@@ -33,7 +33,7 @@ void RegisterBuiltinProcessors() {
     REGISTER_RECALL(InvertedRecallProcessor);
     REGISTER_RECALL(UserHistoryRecallProcessor);
     REGISTER_RECALL(HotContentRecallProcessor);
-    // REGISTER_RECALL(VectorRecallProcessor);  // V1 阶段开启
+    REGISTER_RECALL(VectorRecallProcessor);
 
     // 打分处理器（粗排）
     REGISTER_SCORER(BM25ScorerProcessor);
