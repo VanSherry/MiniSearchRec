@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package minisearchrec;
+
+import "doc.proto";
+
+// ============================================================
+// 用户行为事件 proto
+// 参考 X(Twitter) UUA (Unified User Actions)
+// ============================================================
+
+// 文档管理请求
+message AddDocRequest {
+    Document doc = 1;
+}
+
+message AddDocResponse {
+    int32 ret = 1;
+    string err_msg = 2;
+    string doc_id = 3;
+}
+
+message UpdateDocRequest {
+    string doc_id = 1;
+    Document doc = 2;
+}
+
+message UpdateDocResponse {
+    int32 ret = 1;
+    string err_msg = 2;
+}
+
+message DeleteDocRequest {
+    string doc_id = 1;
+}
+
+message DeleteDocResponse {
+    int32 ret = 1;
+    string err_msg = 2;
+}
+
+// 批量导入请求
+message ImportDocsRequest {
+    repeated Document docs = 1;
+}
+
+message ImportDocsResponse {
+    int32 ret = 1;
+    string err_msg = 2;
+    int32 success_count = 3;
+    int32 fail_count = 4;
+}

@@ -1,0 +1,50 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# Compiled objects
+*.o
+*.obj
+*.lo
+*.slo
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.exe
+*.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Data files (sample data excluded)
+data/*.json
+!data/sample_docs.json
+data/*.db
+data/*.txt
+models/*.txt
+models/*.bin
+models/versions/
+index/*.idx
+index/*.faiss
+index/*.db
+
+# Config local overrides
+config/local.yaml
+
+# Dependencies (third_party should be managed separately)
+third_party/cpp-httplib/
+third_party/spdlog/
+third_party/cppjieba/
+third_party/json/

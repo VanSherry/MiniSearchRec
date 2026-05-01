@@ -1,0 +1,54 @@
+# ============================================================
+# MiniSearchRec - 排序配置
+# 参考：微信天秤树模型、X(Twitter) Heavy Ranker
+#
+# 训练闭环流程：
+#   1. 在线服务运行，用户行为写入 ./data/events.db
+#   2. 离线导出样本：
+#      ./build/dump_train_data --cold-start  （首次，无数据时）
+#      ./build/dump_train_data               （有数据后）
+#   3. 训练模型：
+#      python3 scripts/train_rank_model.py
+#   4. 重启服务（热更新）或重新编译
+# ============================================================
+
+# 粗排阶段配置
+coarse_rank_stages:
+  - name: "BM25ScorerProcessor"
+    weight: 0.6
+    params:
+      k1: 1.5
+      b: 0.75
+
+  - name: "QualityScorerProcessor"
+    weight: 0.2
+    params:
+      click_weight: 0.3
+      like_weight: 0.4
+      quality_weight: 0.3
+
+  - name: "FreshnessScorerProcessor"
+    weight: 0.2
+    params:
+      max_age_days: 365
+      decay_rate: 0.01
+
+# 精排阶段配置
+# - 有 LightGBM + 模型文件时：走真实树模型推理
+# - 无 LightGBM 或模型文件不存在时：自动降级到内置规则树
+# - 首次运行请先执行：
+#     ./build/dump_train_data --cold-start
+#     python3 scripts/train_rank_model.py
+fine_rank_stages:
+  - name: "LGBMScorerProcessor"
+    weight: 0.8
+    model_path: "./models/rank_model.txt"
+    params:
+      num_trees: 100
+
+# 后处理阶段配置
+postprocess_stages:
+  - name: "MMRRerankProcessor"
+    params:
+      lambda: 0.7
+      top_k: 20

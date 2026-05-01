@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package minisearchrec;
+
+// ============================================================
+// 用户数据模型
+// 参考 X(Twitter) UUA (Unified User Actions) 设计
+// ============================================================
+
+message UserProfile {
+    string uid = 1;                         // 用户唯一 ID
+    repeated string query_history = 2;        // 搜索历史
+    repeated string click_doc_ids = 3;        // 点击文档列表
+    repeated string like_doc_ids = 4;         // 点赞文档列表
+    repeated float interest_embedding = 5;    // 兴趣向量（768维）
+    map<string, float> category_weights = 6;  // 分类偏好权重
+    int64 update_time = 7;                    // 更新时间（Unix 时间戳）
+    int32 total_clicks = 8;                   // 总点击数
+    int32 total_likes = 9;                    // 总点赞数
+    int32 active_days_last_30 = 10;           // 最近30天活跃天数
+    float avg_click_position = 11;             // 平均点击位置
+}
+
+message UserEvent {
+    string uid = 1;
+    string doc_id = 2;
+    EventType event_type = 3;
+    int64 timestamp = 4;
+    string query = 5;                // 触发事件的搜索词（若有）
+    int32 result_position = 6;        // 结果排名位置
+    int32 view_duration_ms = 7;       // 停留时长（毫秒）
+}
+
+enum EventType {
+    EVENT_UNKNOWN = 0;
+    EVENT_CLICK = 1;
+    EVENT_LIKE = 2;
+    EVENT_SHARE = 3;
+    EVENT_SEARCH = 4;
+    EVENT_VIEW_DURATION = 5;
+    EVENT_DISMISS = 6;
+}
+
+message UserEventBatch {
+    repeated UserEvent events = 1;
+}

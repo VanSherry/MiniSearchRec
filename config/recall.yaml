@@ -1,0 +1,32 @@
+# ============================================================
+# MiniSearchRec - 召回策略配置
+# 参考：微信 Miner 平台召回配置
+# ============================================================
+
+# 召回阶段配置
+recall_stages:
+  - name: "InvertedRecallProcessor"
+    enable: true
+    max_recall: 1000
+    params:
+      min_term_freq: 1
+
+  - name: "UserHistoryRecallProcessor"
+    enable: true
+    max_recall: 200
+    params:
+      history_window_days: 30
+
+  - name: "HotContentRecallProcessor"
+    enable: true
+    max_recall: 100
+    params:
+      time_window_hours: 24
+
+  # V1 阶段开启
+  # - name: "VectorRecallProcessor"
+  #   enable: false
+  #   max_recall: 200
+  #   params:
+  #     top_k: 200
+  #     similarity_threshold: 0.7

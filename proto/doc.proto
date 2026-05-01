@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package minisearchrec;
+
+// ============================================================
+// 文档数据模型
+// 对应微信搜推的 DocInfo 结构
+// ============================================================
+
+message Document {
+    string doc_id = 1;                  // 文档唯一 ID
+    string title = 2;                   // 标题
+    string content = 3;                 // 正文
+    string author = 4;                  // 作者
+    int64 publish_time = 5;             // 发布时间（Unix 时间戳）
+    string category = 6;                // 分类标签
+    repeated string tags = 7;           // 标签列表
+    float quality_score = 8;            // 质量分（0-1）
+    int64 click_count = 9;              // 点击数
+    int64 like_count = 10;              // 点赞数
+    repeated float embedding = 11;      // 语义向量（768维）
+    int32 content_length = 12;          // 正文长度（用于 BM25）
+    string source_url = 13;             // 原文链接
+}
+
+message DocBatch {
+    repeated Document docs = 1;
+}

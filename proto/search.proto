@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package minisearchrec;
+
+import "doc.proto";
+
+// ============================================================
+// 搜索请求/响应模型
+// 参考微信搜推 SearchRequest/SearchResponse
+// ============================================================
+
+message SearchRequest {
+    string query = 1;                 // 搜索词
+    string uid = 2;                    // 用户 ID（可选，用于个性化）
+    int32 page = 3;                    // 页码（从 1 开始）
+    int32 page_size = 4;               // 每页数量（默认 20）
+    string business_type = 5;           // 业务类型（article/video/goods）
+    map<string, string> params = 6;    // 扩展参数
+    string trace_id = 7;               // 链路追踪 ID（可选，服务端生成）
+}
+
+message SearchResult {
+    string doc_id = 1;
+    string title = 2;
+    string snippet = 3;                // 摘要（高亮命中词）
+    float score = 4;                   // 最终排序分
+    string doc_url = 5;
+    string recall_source = 6;          // 召回来源（用于调试）
+    map<string, float> debug_scores = 7; // 各维度分数（调试用）
+    string author = 8;
+    int64 publish_time = 9;
+    string category = 10;
+    int64 click_count = 11;
+    int64 like_count = 12;
+}
+
+message SearchResponse {
+    int32 ret = 1;                  // 返回码（0=成功）
+    string err_msg = 2;              // 错误信息
+    repeated SearchResult results = 3;
+    int32 total = 4;                 // 总结果数
+    int64 cost_ms = 5;               // 耗时（毫秒）
+    string trace_id = 6;             // 链路追踪 ID
+    int32 page = 7;                  // 当前页码
+    int32 page_size = 8;             // 每页数量
+}

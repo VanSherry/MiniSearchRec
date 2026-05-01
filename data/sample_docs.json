@@ -1,0 +1,62 @@
+[
+  {
+    "doc_id": "doc_001",
+    "title": "深度学习从零开始",
+    "content": "深度学习是机器学习的一个重要分支，它模拟人脑神经网络的工作方式，通过多层神经网络进行特征学习和表示学习。本文将从零开始介绍深度学习的基本概念、常用框架和实践案例。",
+    "author": "张三",
+    "publish_time": 1714492800,
+    "category": "tech",
+    "tags": ["深度学习", "机器学习", "人工智能", "神经网络"],
+    "quality_score": 0.92,
+    "click_count": 1250,
+    "like_count": 380
+  },
+  {
+    "doc_id": "doc_002",
+    "title": "机器学习实战指南",
+    "content": "机器学习是一门多领域交叉学科，涉及概率论、统计学、逼近论、凸分析、算法复杂度理论等多门学科。本文介绍机器学习的基本概念和常用算法，包括监督学习、无监督学习和强化学习。",
+    "author": "李四",
+    "publish_time": 1714579200,
+    "category": "tech",
+    "tags": ["机器学习", "数据科学", "Python", "算法"],
+    "quality_score": 0.88,
+    "click_count": 980,
+    "like_count": 290
+  },
+  {
+    "doc_id": "doc_003",
+    "title": "C++ 高性能编程技巧",
+    "content": "C++作为一门高性能编程语言，在系统编程、游戏开发、高频交易等领域有着广泛应用。本文总结C++高性能编程的核心技巧，包括内存管理、并发编程、编译器优化等内容。",
+    "author": "王五",
+    "publish_time": 1714665600,
+    "category": "tech",
+    "tags": ["C++", "高性能", "系统编程", "并发"],
+    "quality_score": 0.85,
+    "click_count": 750,
+    "like_count": 210
+  },
+  {
+    "doc_id": "doc_004",
+    "title": "Protocol Buffer 入门教程",
+    "content": "Protocol Buffer是Google开发的一种数据序列化协议，具有语言无关、平台无关、可扩展的特性。本文介绍Protocol Buffer的基本用法和最佳实践。",
+    "author": "赵六",
+    "publish_time": 1714752000,
+    "category": "tech",
+    "tags": ["protobuf", "序列化", "Google", "RPC"],
+    "quality_score": 0.90,
+    "click_count": 620,
+    "like_count": 180
+  },
+  {
+    "doc_id": "doc_005",
+    "title": "倒排索引原理与实现",
+    "content": "倒排索引是搜索引擎的核心数据结构，它通过建立词项到文档的映射关系，实现快速的全文检索。本文详细介绍倒排索引的原理、构建方法和在搜索系统中的应用。",
+    "author": "孙七",
+    "publish_time": 1714838400,
+    "category": "tech",
+    "tags": ["搜索引擎", "倒排索引", "信息检索", "数据结构"],
+    "quality_score": 0.95,
+    "click_count": 1580,
+    "like_count": 520
+  }
+]
