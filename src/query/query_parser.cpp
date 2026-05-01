@@ -9,6 +9,8 @@
 #include "query/query_expander.h"
 #include "utils/string_utils.h"
 #include "core/app_context.h"
+#include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cmath>
 #include <functional>

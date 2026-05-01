@@ -6,6 +6,7 @@
 #include "user/user_profile.h"
 #include "core/app_context.h"
 #include "utils/logger.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <chrono>

@@ -3,6 +3,7 @@
 // ============================================================
 
 #include "rank/quality_scorer.h"
+#include <algorithm>
 #include <cmath>
 
 namespace minisearchrec {

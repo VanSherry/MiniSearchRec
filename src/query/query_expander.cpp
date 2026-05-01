@@ -4,6 +4,7 @@
 
 #include "query/query_expander.h"
 #include "utils/string_utils.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 

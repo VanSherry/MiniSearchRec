@@ -4,6 +4,7 @@
 // ==========================================================
 
 #include "feature/user_features.h"
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 

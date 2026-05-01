@@ -4,6 +4,7 @@
 
 #include "feature/query_features.h"
 #include "utils/string_utils.h"
+#include <algorithm>
 #include <unordered_set>
 
 namespace minisearchrec {
