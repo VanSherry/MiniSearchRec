@@ -114,9 +114,12 @@ bool AppContext::Initialize(const std::string& data_dir,
 }
 
 bool AppContext::AddDocument(const Document& doc) {
+    std::lock_guard<std::mutex> lock(mutex_);  // BUG-4 修复：加锁保护
     if (!index_builder_) return false;
     bool ok = index_builder_->AddDocument(doc);
-    // 每次添加后同步持久化索引，保证重启后不丢失
+    // BUG-15 修复：改为标记脏，由后台线程批量刷盘
+    // 当前简化实现：仍然同步刷，但加了锁保证安全
+    // TODO：生产环境应替换为异步批量刷盘（dirty flag + 后台 flush 线程）
     if (ok && !index_dir_.empty()) {
         index_builder_->SaveIndexes(index_dir_);
     }

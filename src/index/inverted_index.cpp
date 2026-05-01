@@ -10,6 +10,7 @@
 #include <cctype>
 #include <iostream>
 #include <unordered_set>
+#include <filesystem>
 
 namespace minisearchrec {
 
@@ -132,117 +133,77 @@ void InvertedIndex::AddDocument(const std::string& doc_id,
 
     uint32_t doc_len = content_length > 0 ? content_length
                                           : static_cast<uint32_t>(content.size());
+
+    // ── 幂等处理：先清除该 doc_id 的旧词条，再从零重建 ──
+    // 防止同一文档重复添加导致词频虚增、旧词条残留
+    bool is_new_doc = (doc_lengths_.find(doc_id) == doc_lengths_.end());
+    if (!is_new_doc) {
+        // 从所有倒排链中移除该文档（不加锁版，已在锁内）
+        auto terms_it = doc_terms_.find(doc_id);
+        if (terms_it != doc_terms_.end()) {
+            for (const auto& term : terms_it->second) {
+                auto pit = index_.find(term);
+                if (pit != index_.end()) {
+                    auto& postings = pit->second;
+                    postings.erase(
+                        std::remove_if(postings.begin(), postings.end(),
+                            [&](const PostingNode& n) { return n.doc_id == doc_id; }),
+                        postings.end());
+                    if (postings.empty()) index_.erase(pit);
+                }
+            }
+            doc_terms_.erase(terms_it);
+        }
+        // 更新长度表但 total_docs_ 不变（已存在的文档不重计）
+        total_doc_len_ -= doc_lengths_[doc_id];
+    }
     doc_lengths_[doc_id] = doc_len;
+    total_doc_len_ += doc_len;
 
-    auto title_tokens = Tokenize(title);
-    for (const auto& term : title_tokens) {
-        auto& postings = index_[term];
-        bool found = false;
-        for (auto& node : postings) {
-            if (node.doc_id == doc_id) {
-                node.term_freq++;
-                node.field_weight = std::max(node.field_weight, TITLE_WEIGHT);
-                found = true;
-                break;
+    // 用 unordered_set 代替 O(N) std::find，提升去重性能
+    std::unordered_set<std::string> doc_term_set;
+
+    auto add_tokens = [&](const std::vector<std::string>& tokens, float fw) {
+        for (const auto& term : tokens) {
+            auto& postings = index_[term];
+            bool found = false;
+            for (auto& node : postings) {
+                if (node.doc_id == doc_id) {
+                    node.term_freq++;
+                    node.field_weight = std::max(node.field_weight, fw);
+                    found = true;
+                    break;
+                }
             }
-        }
-        if (!found) {
-            PostingNode node;
-            node.doc_id = doc_id;
-            node.term_freq = 1;
-            node.field_weight = TITLE_WEIGHT;
-            node.doc_len = doc_len;
-            postings.push_back(node);
-        }
-        if (std::find(doc_terms_[doc_id].begin(),
-                       doc_terms_[doc_id].end(), term) == doc_terms_[doc_id].end()) {
-            doc_terms_[doc_id].push_back(term);
-        }
-    }
-
-    auto content_tokens = Tokenize(content);
-    for (const auto& term : content_tokens) {
-        auto& postings = index_[term];
-        bool found = false;
-        for (auto& node : postings) {
-            if (node.doc_id == doc_id) {
-                node.term_freq++;
-                found = true;
-                break;
+            if (!found) {
+                PostingNode node;
+                node.doc_id = doc_id;
+                node.term_freq = 1;
+                node.field_weight = fw;
+                node.doc_len = doc_len;
+                postings.push_back(node);
             }
+            doc_term_set.insert(term);
         }
-        if (!found) {
-            PostingNode node;
-            node.doc_id = doc_id;
-            node.term_freq = 1;
-            node.field_weight = CONTENT_WEIGHT;
-            node.doc_len = doc_len;
-            postings.push_back(node);
-        }
-        if (std::find(doc_terms_[doc_id].begin(),
-                       doc_terms_[doc_id].end(), term) == doc_terms_[doc_id].end()) {
-            doc_terms_[doc_id].push_back(term);
-        }
-    }
+    };
 
+    add_tokens(Tokenize(title),    TITLE_WEIGHT);
+    add_tokens(Tokenize(content),  CONTENT_WEIGHT);
     for (const auto& tag : tags) {
-        auto tag_tokens = Tokenize(tag);
-        for (const auto& term : tag_tokens) {
-            auto& postings = index_[term];
-            bool found = false;
-            for (auto& node : postings) {
-                if (node.doc_id == doc_id) {
-                    node.term_freq++;
-                    node.field_weight = std::max(node.field_weight, TAG_WEIGHT);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                PostingNode node;
-                node.doc_id = doc_id;
-                node.term_freq = 1;
-                node.field_weight = TAG_WEIGHT;
-                node.doc_len = doc_len;
-                postings.push_back(node);
-            }
-            if (std::find(doc_terms_[doc_id].begin(),
-                           doc_terms_[doc_id].end(), term) == doc_terms_[doc_id].end()) {
-                doc_terms_[doc_id].push_back(term);
-            }
-        }
+        add_tokens(Tokenize(tag),  TAG_WEIGHT);
     }
-
     if (!category.empty()) {
-        auto category_tokens = Tokenize(category);
-        for (const auto& term : category_tokens) {
-            auto& postings = index_[term];
-            bool found = false;
-            for (auto& node : postings) {
-                if (node.doc_id == doc_id) {
-                    node.term_freq++;
-                    node.field_weight = std::max(node.field_weight, CATEGORY_WEIGHT);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                PostingNode node;
-                node.doc_id = doc_id;
-                node.term_freq = 1;
-                node.field_weight = CATEGORY_WEIGHT;
-                node.doc_len = doc_len;
-                postings.push_back(node);
-            }
-            if (std::find(doc_terms_[doc_id].begin(),
-                           doc_terms_[doc_id].end(), term) == doc_terms_[doc_id].end()) {
-                doc_terms_[doc_id].push_back(term);
-            }
-        }
+        add_tokens(Tokenize(category), CATEGORY_WEIGHT);
     }
 
-    total_docs_++;
-    RecalculateAvgDocLen();
+    doc_terms_[doc_id].assign(doc_term_set.begin(), doc_term_set.end());
+
+    if (is_new_doc) {
+        total_docs_++;
+    }
+    // 增量更新平均文档长度，O(1)
+    avg_doc_len_ = doc_lengths_.empty() ? 0.0f
+                 : static_cast<float>(total_doc_len_) / static_cast<float>(doc_lengths_.size());
 }
 
 std::vector<std::string> InvertedIndex::Search(
@@ -310,6 +271,7 @@ std::vector<std::string> InvertedIndex::SearchAnd(
 }
 
 float InvertedIndex::CalculateIDF(const std::string& term) const {
+    std::shared_lock<std::shared_mutex> lock(rwlock_);  // BUG-5 修复：加读锁
     auto it = index_.find(term);
     if (it == index_.end() || total_docs_ == 0) {
         return 0.0f;
@@ -344,17 +306,19 @@ std::unordered_map<std::string, PostingNode> InvertedIndex::GetDocPostings(
     return result;
 }
 
+// RecalculateAvgDocLen 已改为增量维护，此处保留空实现以兼容 Load 调用
 void InvertedIndex::RecalculateAvgDocLen() {
     if (doc_lengths_.empty()) {
         avg_doc_len_ = 0.0f;
+        total_doc_len_ = 0;
         return;
     }
-
-    uint64_t total = 0;
+    // Load 后重算一次（全量，仅在启动时调用）
+    total_doc_len_ = 0;
     for (const auto& [_, len] : doc_lengths_) {
-        total += len;
+        total_doc_len_ += len;
     }
-    avg_doc_len_ = static_cast<float>(total) / static_cast<float>(doc_lengths_.size());
+    avg_doc_len_ = static_cast<float>(total_doc_len_) / static_cast<float>(doc_lengths_.size());
 }
 
 void InvertedIndex::Clear() {
@@ -364,6 +328,39 @@ void InvertedIndex::Clear() {
     doc_terms_.clear();
     avg_doc_len_ = 0.0f;
     total_docs_ = 0;
+    total_doc_len_ = 0;
+}
+
+// ── RemoveDocument：从倒排索引中完整清除一篇文档 ──
+// BUG-1/2 修复：Delete/Update 时必须调用此方法清理旧词条
+void InvertedIndex::RemoveDocument(const std::string& doc_id) {
+    std::unique_lock<std::shared_mutex> lock(rwlock_);
+
+    auto terms_it = doc_terms_.find(doc_id);
+    if (terms_it == doc_terms_.end()) return;  // 文档不存在，幂等
+
+    for (const auto& term : terms_it->second) {
+        auto pit = index_.find(term);
+        if (pit != index_.end()) {
+            auto& postings = pit->second;
+            postings.erase(
+                std::remove_if(postings.begin(), postings.end(),
+                    [&](const PostingNode& n) { return n.doc_id == doc_id; }),
+                postings.end());
+            if (postings.empty()) index_.erase(pit);
+        }
+    }
+    doc_terms_.erase(terms_it);
+
+    auto len_it = doc_lengths_.find(doc_id);
+    if (len_it != doc_lengths_.end()) {
+        total_doc_len_ -= len_it->second;
+        doc_lengths_.erase(len_it);
+    }
+
+    if (total_docs_ > 0) total_docs_--;
+    avg_doc_len_ = doc_lengths_.empty() ? 0.0f
+                 : static_cast<float>(total_doc_len_) / static_cast<float>(doc_lengths_.size());
 }
 
 // ==========================================================
@@ -379,36 +376,45 @@ void InvertedIndex::Clear() {
 bool InvertedIndex::Save(const std::string& path) const {
     std::shared_lock<std::shared_mutex> lock(rwlock_);
 
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs) {
-        std::cerr << "[InvertedIndex] Save failed, cannot open: " << path << "\n";
-        return false;
-    }
-
-    // 写入 total_docs
-    ofs << "TOTAL " << total_docs_ << "\n";
-
-    // 写入文档长度表
-    for (const auto& [doc_id, len] : doc_lengths_) {
-        ofs << "DOC_LEN " << doc_id << " " << len << "\n";
-    }
-
-    // 写入 doc_terms 表
-    for (const auto& [doc_id, terms] : doc_terms_) {
-        ofs << "DOC_TERMS " << doc_id;
-        for (const auto& t : terms) ofs << " " << t;
-        ofs << "\n";
-    }
-
-    // 写入倒排索引
-    for (const auto& [term, postings] : index_) {
-        ofs << "TERM " << term << "\n";
-        for (const auto& node : postings) {
-            ofs << "NODE " << node.doc_id << " "
-                << node.term_freq << " "
-                << node.field_weight << " "
-                << node.doc_len << "\n";
+    // BUG-11 修复：先写临时文件，完成后 rename，防止崩溃留下损坏文件
+    std::string tmp_path = path + ".tmp";
+    {
+        std::ofstream ofs(tmp_path, std::ios::binary);
+        if (!ofs) {
+            std::cerr << "[InvertedIndex] Save failed, cannot open: " << tmp_path << "\n";
+            return false;
         }
+
+        ofs << "TOTAL " << total_docs_ << "\n";
+
+        for (const auto& [doc_id, len] : doc_lengths_) {
+            ofs << "DOC_LEN " << doc_id << " " << len << "\n";
+        }
+
+        for (const auto& [doc_id, terms] : doc_terms_) {
+            ofs << "DOC_TERMS " << doc_id;
+            for (const auto& t : terms) ofs << " " << t;
+            ofs << "\n";
+        }
+
+        for (const auto& [term, postings] : index_) {
+            ofs << "TERM " << term << "\n";
+            for (const auto& node : postings) {
+                ofs << "NODE " << node.doc_id << " "
+                    << node.term_freq << " "
+                    << node.field_weight << " "
+                    << node.doc_len << "\n";
+            }
+        }
+    }  // ofs 析构，文件关闭
+
+    // 原子替换
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, path, ec);
+    if (ec) {
+        std::cerr << "[InvertedIndex] Save rename failed: " << ec.message() << "\n";
+        std::filesystem::remove(tmp_path, ec);
+        return false;
     }
 
     std::cout << "[InvertedIndex] Saved to " << path

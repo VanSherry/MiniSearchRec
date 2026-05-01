@@ -47,13 +47,16 @@ public:
                   const std::string& user_dict_path,
                   const std::string& idf_path);
 
-    // 添加文档到索引
+    // 添加文档到索引（幂等：若 doc_id 已存在，先清除旧词条再重建）
     void AddDocument(const std::string& doc_id,
                     const std::string& title,
                     const std::string& content,
                     const std::string& category,
                     const std::vector<std::string>& tags,
                     int32_t content_length);
+
+    // 从索引中移除文档（同时清理所有词条的 posting list）
+    void RemoveDocument(const std::string& doc_id);
 
     // 批量添加文档
     void AddDocuments(const std::vector<std::string>& doc_ids,
@@ -121,8 +124,11 @@ private:
     // 平均文档长度（BM25 需要）
     float avg_doc_len_ = 0.0f;
 
-    // 总文档数
+    // 总文档数（仅新文档时递增，更新时不变）
     size_t total_docs_ = 0;
+
+    // 所有文档长度之和（用于 O(1) 增量更新 avg_doc_len_）
+    uint64_t total_doc_len_ = 0;
 
     // cppjieba 分词器（可选）
 #ifdef HAVE_CPPJIEBA

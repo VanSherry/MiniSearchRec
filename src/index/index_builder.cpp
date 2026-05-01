@@ -99,6 +99,13 @@ bool IndexBuilder::AddDocument(const Document& doc) {
         tags.push_back(doc.tags(i));
     }
 
+    // BUG-12 修复：先持久化，成功后再更新内存索引（Write-ahead 保证重启一致性）
+    if (!doc_store_->PutDoc(doc)) {
+        std::cerr << "[IndexBuilder] PutDoc failed for doc_id=" << doc.doc_id() << "\n";
+        return false;
+    }
+
+    // AddDocument 内部已实现幂等（先 RemoveDocument 再重建），BUG-2/19 同时修复
     inv_idx_->AddDocument(
         doc.doc_id(),
         doc.title(),
@@ -108,7 +115,6 @@ bool IndexBuilder::AddDocument(const Document& doc) {
         doc.content_length()
     );
 
-    doc_store_->PutDoc(doc);
     return true;
 }
 

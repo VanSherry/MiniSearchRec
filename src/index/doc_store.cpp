@@ -23,9 +23,18 @@ bool DocStore::Open(const std::string& db_path) {
     int rc = sqlite3_open(db_path.c_str(), &impl_->db);
     if (rc != SQLITE_OK) {
         std::cerr << "[DocStore] Failed to open database: "
-                  << sqlite3_errmsg(impl_->db) << "\n";
+                  << (impl_->db ? sqlite3_errmsg(impl_->db) : "unknown") << "\n";
+        // sqlite3_open 失败时句柄可能非 null，必须关闭
+        if (impl_->db) {
+            sqlite3_close(impl_->db);
+            impl_->db = nullptr;
+        }
         return false;
     }
+
+    // WAL 模式提升并发读写性能
+    sqlite3_exec(impl_->db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+    sqlite3_exec(impl_->db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
 
     // 创建文档表
     const char* sql = R"(
@@ -49,6 +58,8 @@ bool DocStore::Open(const std::string& db_path) {
     if (rc != SQLITE_OK) {
         std::cerr << "[DocStore] Failed to create table: " << err_msg << "\n";
         sqlite3_free(err_msg);
+        sqlite3_close(impl_->db);  // BUG-9 修复：建表失败也必须关闭句柄
+        impl_->db = nullptr;
         return false;
     }
 

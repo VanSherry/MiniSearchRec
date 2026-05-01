@@ -44,6 +44,7 @@ void HotContentRecallProcessor::RefreshHotList() {
 
     std::vector<HotItem> new_list;
     new_list.reserve(std::min((int)all_ids.size(), max_recall_ * 5));
+    size_t new_size = 0;
 
     for (const auto& doc_id : all_ids) {
         Document doc;
@@ -73,9 +74,10 @@ void HotContentRecallProcessor::RefreshHotList() {
     {
         std::lock_guard<std::mutex> lock(hot_list_mutex_);
         hot_list_cache_ = std::move(new_list);
+        new_size = hot_list_cache_.size();   // BUG-6 修复：在锁内读取 size
     }
     last_refresh_time_.store(now);
-    LOG_INFO("HotContentRecallProcessor: hot list refreshed, size={}", hot_list_cache_.size());
+    LOG_INFO("HotContentRecallProcessor: hot list refreshed, size={}", new_size);
 }
 
 int HotContentRecallProcessor::Process(Session& session) {
@@ -85,9 +87,12 @@ int HotContentRecallProcessor::Process(Session& session) {
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
 
-    // 缓存过期则重新构建热榜（懒刷新）
-    if (now - last_refresh_time_.load() > refresh_interval_sec_) {
-        RefreshHotList();
+    // BUG-6 修复：用 CAS 确保只有一个线程执行刷新，防止并发惊群
+    int64_t old_time = last_refresh_time_.load();
+    if (now - old_time > refresh_interval_sec_) {
+        if (last_refresh_time_.compare_exchange_strong(old_time, now)) {
+            RefreshHotList();  // 只有 CAS 成功的线程执行刷新
+        }
     }
 
     // 构建已有 doc_id 集合，O(1) 去重
