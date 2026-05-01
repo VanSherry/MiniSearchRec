@@ -5,6 +5,7 @@
 #include "index/doc_store.h"
 #include <sqlite3.h>
 #include <iostream>
+#include <sstream>
 
 namespace minisearchrec {
 
