@@ -61,7 +61,7 @@ public:
     // --- 是否就绪 ---
     bool IsReady() const { return ready_; }
 
-    // --- 增量添加文档（线程安全）---
+    // --- 增量添加文档（线程安全，同时持久化索引）---
     bool AddDocument(const Document& doc);
 
 private:
@@ -73,6 +73,7 @@ private:
     std::shared_ptr<IndexBuilder>  index_builder_;
     std::shared_ptr<ABTestManager> ab_test_manager_;
     bool ready_ = false;
+    std::string index_dir_;        // 保存索引目录路径，供 AddDocument 持久化使用
     mutable std::mutex mutex_;
 };
 

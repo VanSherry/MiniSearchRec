@@ -14,6 +14,7 @@ bool AppContext::Initialize(const std::string& data_dir,
                              const std::string& index_dir,
                              bool rebuild_on_start) {
     std::lock_guard<std::mutex> lock(mutex_);
+    index_dir_ = index_dir;  // 保存供 AddDocument 使用
 
     LOG_INFO("AppContext initializing, data_dir={}, index_dir={}, rebuild={}",
              data_dir, index_dir, rebuild_on_start);
@@ -63,24 +64,46 @@ bool AppContext::Initialize(const std::string& data_dir,
     }
 
     if (!index_loaded) {
-        // 从 data 目录构建索引
-        std::string json_path = data_dir + "/sample_docs.json";
-
-        // 检查文件是否存在
-        std::ifstream f(json_path);
-        if (f.good()) {
-            f.close();
-            LOG_INFO("Building index from: {}", json_path);
-            if (!index_builder_->BuildFromJson(json_path)) {
-                LOG_WARN("Failed to build index from {}", json_path);
-            } else {
-                LOG_INFO("Index built successfully, doc_count={}",
-                         inverted_index_->GetDocCount());
-                // 保存到磁盘
-                index_builder_->SaveIndexes(index_dir);
+        // 优先从 SQLite docs.db 重建索引（包含所有通过 doc/add 动态添加的文章）
+        bool rebuilt_from_db = false;
+        if (doc_store_) {
+            auto all_ids = doc_store_->GetAllDocIds();
+            if (!all_ids.empty()) {
+                LOG_INFO("Rebuilding index from SQLite docs.db, doc_count={}",
+                         all_ids.size());
+                std::vector<Document> docs;
+                for (const auto& id : all_ids) {
+                    Document doc;
+                    if (doc_store_->GetDoc(id, doc)) {
+                        docs.push_back(doc);
+                    }
+                }
+                if (index_builder_->BuildFromDocs(docs)) {
+                    LOG_INFO("Index rebuilt from SQLite, doc_count={}",
+                             inverted_index_->GetDocCount());
+                    index_builder_->SaveIndexes(index_dir);
+                    rebuilt_from_db = true;
+                }
             }
-        } else {
-            LOG_WARN("Data file not found: {}, starting with empty index", json_path);
+        }
+
+        if (!rebuilt_from_db) {
+            // SQLite 为空时回退到 sample_docs.json
+            std::string json_path = data_dir + "/sample_docs.json";
+            std::ifstream f(json_path);
+            if (f.good()) {
+                f.close();
+                LOG_INFO("Building index from: {}", json_path);
+                if (!index_builder_->BuildFromJson(json_path)) {
+                    LOG_WARN("Failed to build index from {}", json_path);
+                } else {
+                    LOG_INFO("Index built successfully, doc_count={}",
+                             inverted_index_->GetDocCount());
+                    index_builder_->SaveIndexes(index_dir);
+                }
+            } else {
+                LOG_WARN("Data file not found: {}, starting with empty index", json_path);
+            }
         }
     }
 
@@ -92,7 +115,12 @@ bool AppContext::Initialize(const std::string& data_dir,
 
 bool AppContext::AddDocument(const Document& doc) {
     if (!index_builder_) return false;
-    return index_builder_->AddDocument(doc);
+    bool ok = index_builder_->AddDocument(doc);
+    // 每次添加后同步持久化索引，保证重启后不丢失
+    if (ok && !index_dir_.empty()) {
+        index_builder_->SaveIndexes(index_dir_);
+    }
+    return ok;
 }
 
 } // namespace minisearchrec
