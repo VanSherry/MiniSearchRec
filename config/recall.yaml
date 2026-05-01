@@ -24,12 +24,11 @@ recall_stages:
       time_window_hours: 24
       refresh_interval_sec: 300   # 热榜缓存刷新间隔（秒）
 
-  # 向量召回：需要先为文档和 query 生成 embedding 才能启用
-  # 文档 embedding 通过 tools/build_vector_index 构建
-  # query embedding 需在 QueryParser 中调用 embedding 服务后设置
-  # - name: "VectorRecallProcessor"
-  #   enable: true
-  #   max_recall: 200
-  #   params:
-  #     top_k: 200
-  #     similarity_threshold: 0.7
+  # 向量召回：使用词袋伪 embedding（QueryParser 自动生成），无需外部服务
+  # 若部署了真实 embedding 服务，在 query_parser.cpp 替换 BuildPseudoEmbedding 即可
+  - name: "VectorRecallProcessor"
+    enable: true
+    max_recall: 200
+    params:
+      top_k: 200
+      similarity_threshold: 0.3   # 伪 embedding 相似度阈值适当调低

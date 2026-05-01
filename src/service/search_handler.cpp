@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <chrono>
 #include <json/json.h>
 
 namespace minisearchrec {
@@ -124,6 +125,15 @@ int SearchHandler::DoSearch(const SearchRequest& request,
     session.business_type = request.business_type().empty()
                             ? "default" : request.business_type();
 
+    // 设置请求级 deadline（默认 200ms）
+    session.timeout_ms = 200;
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+        session.deadline_ms = now + session.timeout_ms;
+    }
+
     // 3. Query 理解：使用 QueryParser 分词 + 归一化
     QueryParser qp;
     std::string qp_error;
@@ -134,7 +144,7 @@ int SearchHandler::DoSearch(const SearchRequest& request,
     }
     qp.Parse(request.query(), session.qp_info);
 
-    // 4. A/B 实验：根据 uid 分配实验组，调整 session 行为参数
+    // 4. A/B 实验：根据 uid 分配实验组，通过 GetParam() 覆盖 Pipeline 参数
     auto ab_mgr = AppContext::Instance().GetABTestManager();
     if (ab_mgr && !request.uid().empty()) {
         const auto* exp = ab_mgr->AssignExperiment(request.uid());
@@ -142,6 +152,21 @@ int SearchHandler::DoSearch(const SearchRequest& request,
             session.business_type = exp->name;
             LOG_INFO("SearchHandler: uid={} assigned to experiment={}",
                      request.uid(), exp->name);
+        }
+        // 读取实验组参数覆盖（对照组走默认值 -1，不覆盖）
+        const std::string uid = request.uid();
+        std::string v;
+        v = ab_mgr->GetParam(uid, "mmr_lambda", "");
+        if (!v.empty()) {
+            try { session.ab_override.mmr_lambda = std::stof(v); } catch (...) {}
+        }
+        v = ab_mgr->GetParam(uid, "coarse_top_k", "");
+        if (!v.empty()) {
+            try { session.ab_override.coarse_top_k = std::stoi(v); } catch (...) {}
+        }
+        v = ab_mgr->GetParam(uid, "fine_top_k", "");
+        if (!v.empty()) {
+            try { session.ab_override.fine_top_k = std::stoi(v); } catch (...) {}
         }
     }
 

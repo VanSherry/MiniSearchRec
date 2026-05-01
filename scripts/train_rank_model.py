@@ -149,6 +149,10 @@ def save_model_with_version(model, output_path: str):
         "freshness_score",
         "log_click",
         "log_like",
+        "title_len",
+        "tag_match_count",
+        "category_match",
+        "recall_source_id",
     ]
     with open(feat_names_path, "w") as f:
         for name in feat_names:
@@ -171,10 +175,13 @@ def train(args):
     print(f"[train] Label distribution: "
           + str({int(v): int(c) for v, c in zip(*np.unique(y, return_counts=True))}))
 
+    FEAT_NAMES = ["query_len", "bm25", "quality", "freshness",
+                  "log_click", "log_like", "title_len",
+                  "tag_match_count", "category_match", "recall_source_id"]
+
     train_data = lgb.Dataset(
         X, label=y, group=groups,
-        feature_name=["query_len", "bm25", "quality",
-                      "freshness", "log_click", "log_like"],
+        feature_name=FEAT_NAMES,
         free_raw_data=False
     )
 
@@ -243,7 +250,9 @@ def train(args):
 
     # ---- 特征重要性 ----
     print("\n[train] Feature importance (gain):")
-    feat_names = ["query_len", "bm25", "quality", "freshness", "log_click", "log_like"]
+    feat_names = ["query_len", "bm25", "quality", "freshness",
+                  "log_click", "log_like", "title_len",
+                  "tag_match_count", "category_match", "recall_source_id"]
     importance = model.feature_importance(importance_type="gain")
     total = importance.sum() + 1e-9
     for name, imp in sorted(zip(feat_names, importance),

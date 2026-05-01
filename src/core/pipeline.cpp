@@ -48,6 +48,10 @@ bool Pipeline::LoadFromNodes(const YAML::Node& recall_cfg,
     config_.fine_rank_stages.clear();
     config_.filter_stages.clear();
     config_.postprocess_stages.clear();
+    coarse_scorers_.clear();
+    fine_scorers_.clear();
+    filters_.clear();
+    postprocessors_.clear();
 
     // 加载召回阶段（来自 recall_cfg 或 raw_config_）
     auto parse_recall = [&](const YAML::Node& node) {
@@ -116,6 +120,75 @@ bool Pipeline::LoadFromNodes(const YAML::Node& recall_cfg,
         config_.enable_cache       = (*global)["enable_cache"].as<bool>(true);
     }
 
+    // ── 预初始化 scorer / filter / postprocess 实例（关键：只初始化一次）──
+    // 粗排 scorers
+    for (const auto& stage : config_.coarse_rank_stages) {
+        auto scorer = ProcessorFactory::Instance().CreateScorer(stage.name);
+        if (!scorer) {
+            LOG_WARN("Pipeline init: failed to create coarse scorer: {}", stage.name);
+            coarse_scorers_.push_back(nullptr);
+            continue;
+        }
+        if (!scorer->Init(stage.params)) {
+            LOG_WARN("Pipeline init: coarse scorer {} Init() failed", stage.name);
+            coarse_scorers_.push_back(nullptr);
+            continue;
+        }
+        LOG_INFO("Pipeline init: coarse scorer {} ready", stage.name);
+        coarse_scorers_.push_back(std::move(scorer));
+    }
+
+    // 精排 scorers（LightGBM LoadModel 只在这里发生一次）
+    for (const auto& stage : config_.fine_rank_stages) {
+        auto scorer = ProcessorFactory::Instance().CreateScorer(stage.name);
+        if (!scorer) {
+            LOG_WARN("Pipeline init: failed to create fine scorer: {}", stage.name);
+            fine_scorers_.push_back(nullptr);
+            continue;
+        }
+        if (!scorer->Init(stage.params)) {
+            LOG_WARN("Pipeline init: fine scorer {} Init() failed", stage.name);
+            fine_scorers_.push_back(nullptr);
+            continue;
+        }
+        LOG_INFO("Pipeline init: fine scorer {} ready", stage.name);
+        fine_scorers_.push_back(std::move(scorer));
+    }
+
+    // 过滤器
+    for (const auto& stage : config_.filter_stages) {
+        auto filter = ProcessorFactory::Instance().CreateFilter(stage.name);
+        if (!filter) {
+            LOG_WARN("Pipeline init: failed to create filter: {}", stage.name);
+            filters_.push_back(nullptr);
+            continue;
+        }
+        if (!filter->Init(stage.params)) {
+            LOG_WARN("Pipeline init: filter {} Init() failed", stage.name);
+            filters_.push_back(nullptr);
+            continue;
+        }
+        LOG_INFO("Pipeline init: filter {} ready", stage.name);
+        filters_.push_back(std::move(filter));
+    }
+
+    // 后处理
+    for (const auto& stage : config_.postprocess_stages) {
+        auto proc = ProcessorFactory::Instance().CreatePostProcess(stage.name);
+        if (!proc) {
+            LOG_WARN("Pipeline init: failed to create postprocess: {}", stage.name);
+            postprocessors_.push_back(nullptr);
+            continue;
+        }
+        if (!proc->Init(stage.params)) {
+            LOG_WARN("Pipeline init: postprocess {} Init() failed", stage.name);
+            postprocessors_.push_back(nullptr);
+            continue;
+        }
+        LOG_INFO("Pipeline init: postprocess {} ready", stage.name);
+        postprocessors_.push_back(std::move(proc));
+    }
+
     loaded_ = true;
     LOG_INFO("Pipeline loaded: recall={}, coarse={}, fine={}, filter={}, postproc={}",
              config_.recall_stages.size(),
@@ -134,17 +207,38 @@ int Pipeline::Execute(Session& session) {
         LOG_ERROR("ExecuteRecall failed with ret={}", ret);
         return ret;
     }
+    if (session.IsTimedOut()) {
+        LOG_WARN("Pipeline timeout after recall - trace_id={}, cost={}ms",
+                 session.trace_id, NowMs() - start);
+        BuildResponse(session);
+        session.stats.total_cost_ms = NowMs() - start;
+        return 0;  // 降级：召回结果直接返回
+    }
 
     ret = ExecuteCoarseRank(session);
     if (ret != 0) {
         LOG_ERROR("ExecuteCoarseRank failed with ret={}", ret);
         return ret;
     }
+    if (session.IsTimedOut()) {
+        LOG_WARN("Pipeline timeout after coarse rank - trace_id={}", session.trace_id);
+        session.fine_rank_results = session.coarse_rank_results;
+        BuildResponse(session);
+        session.stats.total_cost_ms = NowMs() - start;
+        return 0;
+    }
 
     ret = ExecuteFineRank(session);
     if (ret != 0) {
         LOG_ERROR("ExecuteFineRank failed with ret={}", ret);
         return ret;
+    }
+    if (session.IsTimedOut()) {
+        LOG_WARN("Pipeline timeout after fine rank - trace_id={}", session.trace_id);
+        session.final_results = session.fine_rank_results;
+        BuildResponse(session);
+        session.stats.total_cost_ms = NowMs() - start;
+        return 0;
     }
 
     ret = ExecuteFilter(session);
@@ -299,30 +393,22 @@ int Pipeline::ExecuteCoarseRank(Session& session) {
     LOG_INFO("ExecuteCoarseRank start - trace_id={}, input_count={}",
              session.trace_id, session.recall_results.size());
 
-    for (const auto& stage : config_.coarse_rank_stages) {
-        int64_t processor_start = NowMs();
+    // 使用预初始化的实例，不再每次 new + Init
+    for (size_t i = 0; i < coarse_scorers_.size(); ++i) {
+        auto& scorer = coarse_scorers_[i];
+        if (!scorer) continue;
 
-        auto scorer = ProcessorFactory::Instance().CreateScorer(stage.name);
-        if (!scorer) {
-            LOG_WARN("Failed to create coarse rank scorer: {}", stage.name);
-            continue;
-        }
-        if (!scorer->Init(stage.params)) {
-            LOG_WARN("Coarse rank scorer {} Init() failed, skipping", stage.name);
-            continue;
-        }
-
+        int64_t t0 = NowMs();
         int ret = scorer->Process(session, session.recall_results);
-        int64_t processor_cost = NowMs() - processor_start;
+        int64_t cost = NowMs() - t0;
 
         if (ret != 0) {
             LOG_WARN("Coarse rank scorer {} failed with ret={}, cost={}ms",
-                     stage.name, ret, processor_cost);
+                     config_.coarse_rank_stages[i].name, ret, cost);
             continue;
         }
-
         LOG_INFO("Coarse rank scorer {} completed - cost={}ms",
-                 stage.name, processor_cost);
+                 config_.coarse_rank_stages[i].name, cost);
     }
 
     std::sort(session.recall_results.begin(), session.recall_results.end(),
@@ -330,7 +416,13 @@ int Pipeline::ExecuteCoarseRank(Session& session) {
             return a.coarse_score > b.coarse_score;
         });
 
-    int keep = std::min(500, (int)session.recall_results.size());
+    // A/B 实验：允许通过 session.ab_override.coarse_top_k 覆盖截断数
+    int coarse_keep = 500;
+    if (session.ab_override.coarse_top_k > 0) {
+        coarse_keep = session.ab_override.coarse_top_k;
+        LOG_INFO("ExecuteCoarseRank: A/B coarse_top_k={}", coarse_keep);
+    }
+    int keep = std::min(coarse_keep, (int)session.recall_results.size());
     session.recall_results.resize(keep);
     session.coarse_rank_results = session.recall_results;
 
@@ -355,33 +447,24 @@ int Pipeline::ExecuteFineRank(Session& session) {
     LOG_INFO("ExecuteFineRank start - trace_id={}, input_count={}",
              session.trace_id, session.coarse_rank_results.size());
 
-    for (const auto& stage : config_.fine_rank_stages) {
-        int64_t processor_start = NowMs();
+    // 使用预初始化的实例（LightGBM Booster 已加载，不重复 LoadModel）
+    for (size_t i = 0; i < fine_scorers_.size(); ++i) {
+        auto& scorer = fine_scorers_[i];
+        if (!scorer) continue;
 
-        auto scorer = ProcessorFactory::Instance().CreateScorer(stage.name);
-        if (!scorer) {
-            LOG_WARN("Failed to create fine rank scorer: {}", stage.name);
-            continue;
-        }
-        if (!scorer->Init(stage.params)) {
-            LOG_WARN("Fine rank scorer {} Init() failed, skipping", stage.name);
-            continue;
-        }
-
+        int64_t t0 = NowMs();
         int ret = scorer->Process(session, session.coarse_rank_results);
-        int64_t processor_cost = NowMs() - processor_start;
+        int64_t cost = NowMs() - t0;
 
         if (ret != 0) {
             LOG_WARN("Fine rank scorer {} failed with ret={}, cost={}ms",
-                     stage.name, ret, processor_cost);
+                     config_.fine_rank_stages[i].name, ret, cost);
             continue;
         }
-
         LOG_INFO("Fine rank scorer {} completed - cost={}ms",
-                 stage.name, processor_cost);
+                 config_.fine_rank_stages[i].name, cost);
     }
 
-    // 若无精排模型，用 coarse_score 作为 fine_score
     for (auto& cand : session.coarse_rank_results) {
         if (cand.fine_score == 0.0f) {
             cand.fine_score = cand.coarse_score;
@@ -421,19 +504,11 @@ int Pipeline::ExecuteFilter(Session& session) {
 
     size_t before_count = session.fine_rank_results.size();
 
-    for (const auto& stage : config_.filter_stages) {
-        int64_t processor_start = NowMs();
+    for (size_t i = 0; i < filters_.size(); ++i) {
+        auto& filter = filters_[i];
+        if (!filter) continue;
 
-        auto filter = ProcessorFactory::Instance().CreateFilter(stage.name);
-        if (!filter) {
-            LOG_WARN("Failed to create filter: {}", stage.name);
-            continue;
-        }
-        if (!filter->Init(stage.params)) {
-            LOG_WARN("Filter {} Init() failed, skipping", stage.name);
-            continue;
-        }
-
+        int64_t t0 = NowMs();
         auto it = std::remove_if(
             session.fine_rank_results.begin(),
             session.fine_rank_results.end(),
@@ -442,9 +517,8 @@ int Pipeline::ExecuteFilter(Session& session) {
             });
         session.fine_rank_results.erase(it, session.fine_rank_results.end());
 
-        int64_t processor_cost = NowMs() - processor_start;
         LOG_INFO("Filter {} completed - cost={}ms, removed={}",
-                 stage.name, processor_cost,
+                 config_.filter_stages[i].name, NowMs() - t0,
                  before_count - session.fine_rank_results.size());
         before_count = session.fine_rank_results.size();
     }
@@ -461,30 +535,21 @@ int Pipeline::ExecutePostProcess(Session& session) {
     LOG_INFO("ExecutePostProcess start - trace_id={}, input_count={}",
              session.trace_id, session.fine_rank_results.size());
 
-    for (const auto& stage : config_.postprocess_stages) {
-        int64_t processor_start = NowMs();
+    for (size_t i = 0; i < postprocessors_.size(); ++i) {
+        auto& proc = postprocessors_[i];
+        if (!proc) continue;
 
-        auto processor = ProcessorFactory::Instance().CreatePostProcess(stage.name);
-        if (!processor) {
-            LOG_WARN("Failed to create postprocess processor: {}", stage.name);
-            continue;
-        }
-        if (!processor->Init(stage.params)) {
-            LOG_WARN("PostProcess processor {} Init() failed, skipping", stage.name);
-            continue;
-        }
-
-        int ret = processor->Process(session, session.fine_rank_results);
-        int64_t processor_cost = NowMs() - processor_start;
+        int64_t t0 = NowMs();
+        int ret = proc->Process(session, session.fine_rank_results);
+        int64_t cost = NowMs() - t0;
 
         if (ret != 0) {
-            LOG_WARN("Postprocess processor {} failed with ret={}, cost={}ms",
-                     stage.name, ret, processor_cost);
+            LOG_WARN("Postprocess {} failed with ret={}, cost={}ms",
+                     config_.postprocess_stages[i].name, ret, cost);
             continue;
         }
-
-        LOG_INFO("Postprocess processor {} completed - cost={}ms",
-                 stage.name, processor_cost);
+        LOG_INFO("Postprocess {} completed - cost={}ms",
+                 config_.postprocess_stages[i].name, cost);
     }
 
     session.final_results = session.fine_rank_results;

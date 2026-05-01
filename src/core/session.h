@@ -112,6 +112,27 @@ public:
     // --- 配置快照（请求级）---
     std::string business_type = "default";
 
+    // --- 超时控制 ---
+    // deadline_ms = 0 表示不限超时；非 0 时 Pipeline 各阶段会检查是否超时
+    int64_t deadline_ms = 0;         // 绝对截止时间（epoch ms），0=不限
+    int64_t timeout_ms  = 200;       // 请求整体超时（ms），search_handler 填写
+
+    // 检查当前时间是否已超过 deadline
+    bool IsTimedOut() const {
+        if (deadline_ms == 0) return false;
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+        return now >= deadline_ms;
+    }
+
+    // --- A/B 实验参数覆盖（search_handler 从 ABTestManager::GetParam 填入）---
+    struct ABOverride {
+        float mmr_lambda   = -1.f;  // <0 表示不覆盖，使用配置默认值
+        int   coarse_top_k = -1;    // <0 表示不覆盖
+        int   fine_top_k   = -1;    // <0 表示不覆盖
+    } ab_override;
+
     // 生成 trace_id
     static std::string GenerateTraceId();
 };

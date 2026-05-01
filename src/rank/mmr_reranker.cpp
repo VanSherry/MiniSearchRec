@@ -4,6 +4,7 @@
 // ============================================================
 
 #include "rank/mmr_reranker.h"
+#include "utils/logger.h"
 #include <algorithm>
 #include <cmath>
 
@@ -91,6 +92,21 @@ int MMRRerankProcessor::Process(Session& session,
                                   std::vector<DocCandidate>& candidates) {
     if (candidates.empty()) return 0;
 
+    // A/B 实验：若 session 携带 mmr_lambda 覆盖，优先使用
+    float lambda = lambda_;
+    if (session.ab_override.mmr_lambda >= 0.f &&
+        session.ab_override.mmr_lambda <= 1.f) {
+        lambda = session.ab_override.mmr_lambda;
+        LOG_INFO("MMRReranker: using A/B lambda={:.2f} (default={:.2f})",
+                 lambda, lambda_);
+    }
+
+    // A/B 实验：top_k 覆盖
+    int top_k = top_k_;
+    if (session.ab_override.fine_top_k > 0) {
+        top_k = session.ab_override.fine_top_k;
+    }
+
     // 限制参与重排的候选数
     int num_candidates = std::min(max_candidates_, (int)candidates.size());
     std::vector<DocCandidate> input(candidates.begin(),
@@ -116,7 +132,7 @@ int MMRRerankProcessor::Process(Session& session,
     }
 
     // 后续选择：MMR 准则
-    while ((int)selected.size() < top_k_ && (int)selected.size() < (int)input.size()) {
+    while ((int)selected.size() < top_k && (int)selected.size() < (int)input.size()) {
         float best_mmr = -1e9f;
         int best_idx = -1;
 
@@ -133,7 +149,7 @@ int MMRRerankProcessor::Process(Session& session,
                 max_sim = std::max(max_sim, sim);
             }
 
-            float mmr = lambda_ * relevance - (1.0f - lambda_) * max_sim;
+            float mmr = lambda * relevance - (1.0f - lambda) * max_sim;
 
             if (mmr > best_mmr) {
                 best_mmr = mmr;
