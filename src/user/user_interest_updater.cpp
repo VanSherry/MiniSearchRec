@@ -1,6 +1,7 @@
 // ============================================================
 // MiniSearchRec - 用户兴趣更新器实现
-// 根据用户历史行为定期重新计算兴趣权重
+// 使用真正的 EMA（指数移动平均）进行增量更新
+// EMA 公式：new_weight = α * signal + (1 - α) * old_weight
 // ============================================================
 
 #include "user/user_interest_updater.h"
@@ -21,13 +22,11 @@ static std::string FetchDocCategory(const std::string& doc_id) {
 }
 
 void UserInterestUpdater::UpdateInterests(UserProfile& profile) const {
-    // 清空现有分类权重，从历史重新计算
-    profile.mutable_category_weights()->clear();
-
+    // EMA 增量更新：不清空旧权重，而是在旧权重基础上做衰减+新信号融合
+    ApplyTimeDecay(profile);
     UpdateFromClickHistory(profile);
     UpdateFromLikeHistory(profile);
     UpdateFromSearchHistory(profile);
-    ApplyTimeDecay(profile);
     DiffuseInterests(profile);
 
     // 归一化：确保所有类别权重总和 ≤ 1
@@ -63,7 +62,9 @@ void UserInterestUpdater::UpdateFromClickHistory(UserProfile& profile) const {
     for (const auto& doc_id : profile.click_doc_ids()) {
         std::string cat = FetchDocCategory(doc_id);
         if (!cat.empty()) {
-            weights[cat] = std::min(1.0f, weights[cat] + click_weight_);
+            // EMA: new = α * signal + (1-α) * old
+            float old_w = weights.count(cat) ? weights[cat] : 0.0f;
+            weights[cat] = ema_alpha_ * click_weight_ + (1.0f - ema_alpha_) * old_w;
         }
     }
 }
@@ -77,8 +78,9 @@ void UserInterestUpdater::UpdateFromLikeHistory(UserProfile& profile) const {
     for (const auto& doc_id : profile.like_doc_ids()) {
         std::string cat = FetchDocCategory(doc_id);
         if (!cat.empty()) {
-            // 点赞权重更高
-            weights[cat] = std::min(1.0f, weights[cat] + like_weight_);
+            // 点赞权重更高，EMA 更新
+            float old_w = weights.count(cat) ? weights[cat] : 0.0f;
+            weights[cat] = ema_alpha_ * like_weight_ + (1.0f - ema_alpha_) * old_w;
         }
     }
 }
@@ -95,7 +97,11 @@ void UserInterestUpdater::UpdateFromSearchHistory(UserProfile& profile) const {
     for (const auto& query : profile.query_history()) {
         for (const auto& [kw, cat] : keyword_cat) {
             if (query.find(kw) != std::string::npos) {
-                weights[cat] = std::min(1.0f, weights[cat] + 0.05f);
+                // 搜索信号较弱，alpha 减半
+                float old_w = weights.count(cat) ? weights[cat] : 0.0f;
+                float search_signal = 0.05f;
+                weights[cat] = (ema_alpha_ * 0.5f) * search_signal
+                             + (1.0f - ema_alpha_ * 0.5f) * old_w;
             }
         }
     }

@@ -12,6 +12,8 @@
 #include "index/index_builder.h"
 #include "core/config_manager.h"
 
+using namespace minisearchrec;
+
 void PrintUsage(const char* prog) {
     std::cout << "Usage: " << prog << " [options]\n";
     std::cout << "Options:\n";

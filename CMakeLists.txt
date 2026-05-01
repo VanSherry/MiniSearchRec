@@ -166,6 +166,13 @@ set(CORE_SRCS
     src/core/app_context.cpp
 )
 
+# build_index 只需要核心基础（不含 factory，factory 依赖全部 processor）
+set(CORE_BASE_SRCS
+    src/core/session.cpp
+    src/core/config_manager.cpp
+    src/core/app_context.cpp
+)
+
 set(RECALL_SRCS
     src/recall/inverted_recall.cpp
     src/recall/vector_recall.cpp
@@ -291,9 +298,22 @@ endif()
 # 工具
 # ============================================================
 if(BUILD_TOOLS)
-    add_executable(build_index tools/build_index.cpp ${INDEX_SRCS} ${CORE_SRCS} ${UTILS_SRCS} ${PROTO_SRCS})
+    add_executable(build_index tools/build_index.cpp ${INDEX_SRCS} ${CORE_BASE_SRCS} ${AB_SRCS} ${UTILS_SRCS} ${PROTO_SRCS})
     target_link_libraries(build_index
-        PRIVATE Threads::Threads protobuf::libprotobuf yaml-cpp::yaml-cpp jsoncpp sqlite3)
+        PRIVATE
+        Threads::Threads
+        protobuf::libprotobuf
+        yaml-cpp::yaml-cpp
+        jsoncpp
+        sqlite3
+        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
+        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog_header_only>
+    )
+    if(APPLE)
+        target_link_directories(build_index PRIVATE "${HOMEBREW_PREFIX}/opt/abseil/lib")
+        file(GLOB ABSL_LIBS_TOOL "${HOMEBREW_PREFIX}/opt/abseil/lib/libabsl_*.dylib")
+        target_link_libraries(build_index PRIVATE ${ABSL_LIBS_TOOL})
+    endif()
 
     # 离线样本导出工具（训练闭环）
     add_executable(dump_train_data tools/dump_train_data.cpp)

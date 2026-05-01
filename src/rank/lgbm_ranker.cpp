@@ -114,6 +114,45 @@ std::vector<float> LGBMScorerProcessor::ExtractFeatures(
     // feat[5]: 点赞数（log 平滑 + tanh 归一化）
     feat[5] = std::tanh(std::log1pf(static_cast<float>(cand.like_count)) / 5.0f);
 
+    // feat[6]: 标题长度（UTF-8 字节数，tanh 归一化，正常标题 10-60 bytes）
+    feat[6] = std::tanh(static_cast<float>(cand.title.size()) / 30.0f);
+
+    // feat[7]: 标题/类别命中 query 词数（tanh 归一化）
+    {
+        int match_count = 0;
+        for (const auto& term : session.qp_info.terms) {
+            if (!term.empty()) {
+                if (cand.title.find(term) != std::string::npos ||
+                    cand.category.find(term) != std::string::npos) {
+                    ++match_count;
+                }
+            }
+        }
+        feat[7] = std::tanh(static_cast<float>(match_count) / 3.0f);
+    }
+
+    // feat[8]: 用户兴趣类别与文章类别匹配（0/1）
+    {
+        float match = 0.0f;
+        if (session.user_profile && !cand.category.empty()) {
+            const auto& cat_weights = session.user_profile->category_weights();
+            auto it = cat_weights.find(cand.category);
+            if (it != cat_weights.end()) {
+                match = std::min(1.0f, it->second * 2.0f); // 线性映射到 [0,1]
+            }
+        }
+        feat[8] = match;
+    }
+
+    // feat[9]: 召回来源编号（离散数值，归一化到 [0,1]）
+    {
+        float src_id = 0.0f;
+        if (cand.recall_source == "vector")       src_id = 1.0f / 3.0f;
+        else if (cand.recall_source == "hot_content") src_id = 2.0f / 3.0f;
+        else if (cand.recall_source == "user_history") src_id = 1.0f;
+        feat[9] = src_id;
+    }
+
     return feat;
 }
 
@@ -126,15 +165,17 @@ float LGBMScorerProcessor::PredictBuiltinTree(
     const std::vector<float>& feat) const
 {
     // feat 已经是 tanh 归一化后的值，在 [0,1] 左右
-    float bm25      = feat[1];
-    float quality   = feat[2];
-    float freshness = feat[3];
-    float log_click = feat[4];
-    float log_like  = feat[5];
+    float bm25         = feat[1];
+    float quality      = feat[2];
+    float freshness    = feat[3];
+    float log_click    = feat[4];
+    float log_like     = feat[5];
+    float tag_match    = feat[7];
+    float cat_match    = feat[8];
 
-    // Tree 1：基于 BM25 分裂
+    // Tree 1：基于 BM25 + 标签匹配分裂
     float t1 = 0.0f;
-    if (bm25 > 0.5f) {
+    if (bm25 > 0.5f || tag_match > 0.5f) {
         t1 = (quality > 0.3f) ? 0.8f : 0.5f;
     } else if (bm25 > 0.2f) {
         t1 = (freshness > 0.5f) ? 0.4f : 0.2f;
@@ -142,10 +183,10 @@ float LGBMScorerProcessor::PredictBuiltinTree(
         t1 = (log_click > 0.3f) ? 0.1f : -0.1f;
     }
 
-    // Tree 2：基于 quality + freshness 分裂
+    // Tree 2：基于 quality + 用户兴趣类别匹配分裂
     float t2 = 0.0f;
     if (quality > 0.6f) {
-        t2 = (log_like > 0.3f) ? 0.7f : 0.4f;
+        t2 = (cat_match > 0.3f || log_like > 0.3f) ? 0.7f : 0.4f;
     } else if (quality > 0.3f) {
         t2 = (bm25 > 0.3f) ? 0.3f : 0.1f;
     } else {

@@ -5,6 +5,7 @@
 
 #include "recall/vector_recall.h"
 #include <iostream>
+#include <unordered_set>
 
 namespace minisearchrec {
 
@@ -42,24 +43,22 @@ int VectorRecallProcessor::Process(Session& session) {
     );
 
     int count = 0;
+    // 构建已有 doc_id 集合，O(1) 查找
+    std::unordered_set<std::string> existing_ids;
+    for (const auto& cand : session.recall_results) {
+        existing_ids.insert(cand.doc_id);
+    }
+
     for (const auto& [doc_id, sim] : results) {
         if (count >= max_recall_) break;
 
-        // 检查是否已在召回结果中
-        bool exists = false;
-        for (const auto& cand : session.recall_results) {
-            if (cand.doc_id == doc_id) {
-                exists = true;
-                break;
-            }
-        }
-
-        if (!exists) {
+        if (existing_ids.count(doc_id) == 0) {
             DocCandidate cand;
             cand.doc_id = doc_id;
             cand.recall_source = "vector";
             cand.recall_score = sim;  // 相似度作为召回分
             session.recall_results.push_back(cand);
+            existing_ids.insert(doc_id);
             count++;
         }
     }

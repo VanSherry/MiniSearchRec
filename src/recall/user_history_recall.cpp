@@ -8,6 +8,7 @@
 #include "utils/logger.h"
 #include "utils/string_utils.h"
 #include <chrono>
+#include <unordered_set>
 
 namespace minisearchrec {
 
@@ -35,53 +36,80 @@ int UserHistoryRecallProcessor::Process(Session& session) {
     }
     const auto& profile = *profile_ptr;
 
-    // 获取用户历史点击/点赞的文档
+    // 获取用户历史点击/点赞的文档（内部先去重）
+    std::unordered_set<std::string> seen_ids;
     std::vector<std::string> history_doc_ids;
     for (const auto& doc_id : profile.click_doc_ids()) {
-        history_doc_ids.push_back(doc_id);
+        if (seen_ids.insert(doc_id).second) {
+            history_doc_ids.push_back(doc_id);
+        }
     }
     for (const auto& doc_id : profile.like_doc_ids()) {
-        // 去重
-        if (std::find(history_doc_ids.begin(), history_doc_ids.end(), doc_id)
-                == history_doc_ids.end()) {
+        if (seen_ids.insert(doc_id).second) {
             history_doc_ids.push_back(doc_id);
         }
     }
 
+    // 获取 query 分词，用于相关性过滤
+    const auto& query_terms = session.qp_info.terms;
+    const std::string& inferred_category = session.qp_info.inferred_category;
+
     auto doc_store = AppContext::Instance().GetDocStore();
+
+    // 构建已有 doc_id 集合，O(1) 去重
+    std::unordered_set<std::string> existing_ids;
+    for (const auto& cand : session.recall_results) {
+        existing_ids.insert(cand.doc_id);
+    }
 
     int count = 0;
     for (const auto& doc_id : history_doc_ids) {
         if (count >= max_recall_) break;
+        if (existing_ids.count(doc_id)) continue;
 
-        bool exists = false;
-        for (const auto& cand : session.recall_results) {
-            if (cand.doc_id == doc_id) { exists = true; break; }
-        }
+        DocCandidate cand;
+        cand.doc_id = doc_id;
+        cand.recall_source = "user_history";
 
-        if (!exists) {
-            DocCandidate cand;
-            cand.doc_id = doc_id;
-            cand.recall_source = "user_history";
-            cand.recall_score = 1.0f / (count + 1);
+        if (doc_store) {
+            Document doc;
+            if (!doc_store->GetDoc(doc_id, doc)) continue;
 
-            if (doc_store) {
-                Document doc;
-                if (doc_store->GetDoc(doc_id, doc)) {
-                    cand.title           = doc.title();
-                    cand.content_snippet = utils::Utf8Truncate(doc.content(), 200);
-                    cand.author          = doc.author();
-                    cand.publish_time    = doc.publish_time();
-                    cand.category        = doc.category();
-                    cand.quality_score   = doc.quality_score();
-                    cand.click_count     = doc.click_count();
-                    cand.like_count      = doc.like_count();
+            // Query 相关性过滤：若有 query 分词，则文档需命中至少一个 term 或同类别
+            if (!query_terms.empty()) {
+                bool relevant = false;
+                // 检查标题/类别是否含 query 词
+                const std::string& title = doc.title();
+                const std::string& category = doc.category();
+                for (const auto& term : query_terms) {
+                    if (title.find(term) != std::string::npos ||
+                        category.find(term) != std::string::npos) {
+                        relevant = true;
+                        break;
+                    }
                 }
+                // 类别匹配也算相关
+                if (!relevant && !inferred_category.empty() &&
+                    category == inferred_category) {
+                    relevant = true;
+                }
+                if (!relevant) continue;
             }
 
-            session.recall_results.push_back(cand);
-            count++;
+            cand.title           = doc.title();
+            cand.content_snippet = utils::Utf8Truncate(doc.content(), 200);
+            cand.author          = doc.author();
+            cand.publish_time    = doc.publish_time();
+            cand.category        = doc.category();
+            cand.quality_score   = doc.quality_score();
+            cand.click_count     = doc.click_count();
+            cand.like_count      = doc.like_count();
         }
+
+        cand.recall_score = 1.0f / (count + 1);
+        session.recall_results.push_back(cand);
+        existing_ids.insert(doc_id);
+        count++;
     }
 
     session.counts.recall_source_counts["user_history"] = count;

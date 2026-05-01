@@ -13,6 +13,7 @@
 #include "index/vector_index.h"
 #include "index/doc_store.h"
 #include "index/index_builder.h"
+#include "ab/ab_test.h"
 
 namespace minisearchrec {
 
@@ -48,6 +49,15 @@ public:
         return index_builder_;
     }
 
+    // --- A/B 实验框架 ---
+    std::shared_ptr<ABTestManager> GetABTestManager() const {
+        return ab_test_manager_;
+    }
+
+    void SetABTestManager(std::shared_ptr<ABTestManager> mgr) {
+        ab_test_manager_ = std::move(mgr);
+    }
+
     // --- 是否就绪 ---
     bool IsReady() const { return ready_; }
 
@@ -61,6 +71,7 @@ private:
     std::shared_ptr<VectorIndex>   vector_index_;
     std::shared_ptr<DocStore>      doc_store_;
     std::shared_ptr<IndexBuilder>  index_builder_;
+    std::shared_ptr<ABTestManager> ab_test_manager_;
     bool ready_ = false;
     mutable std::mutex mutex_;
 };

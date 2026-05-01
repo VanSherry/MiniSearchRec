@@ -134,6 +134,17 @@ int SearchHandler::DoSearch(const SearchRequest& request,
     }
     qp.Parse(request.query(), session.qp_info);
 
+    // 4. A/B 实验：根据 uid 分配实验组，调整 session 行为参数
+    auto ab_mgr = AppContext::Instance().GetABTestManager();
+    if (ab_mgr && !request.uid().empty()) {
+        const auto* exp = ab_mgr->AssignExperiment(request.uid());
+        if (exp) {
+            session.business_type = exp->name;
+            LOG_INFO("SearchHandler: uid={} assigned to experiment={}",
+                     request.uid(), exp->name);
+        }
+    }
+
     // 4. 预计算 term IDF（需要索引已就绪）
     auto inv_idx = AppContext::Instance().GetInvertedIndex();
     if (inv_idx) {

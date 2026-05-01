@@ -32,19 +32,15 @@ int FreshnessScorerProcessor::Process(Session& session,
 
     for (auto& cand : candidates) {
         int64_t age_seconds = now - cand.publish_time;
-        int64_t age_days = age_seconds / 86400;
+        float age_days = static_cast<float>(age_seconds) / 86400.0f;
 
         float freshness_score = 0.0f;
-        if (age_days <= 1) {
-            freshness_score = 1.0f;  // 24小时内的内容满分
-        } else if (age_days <= 7) {
-            freshness_score = 0.8f;  // 一周内
-        } else if (age_days <= 30) {
-            freshness_score = 0.5f;  // 一个月内
-        } else if (age_days <= max_age_days_) {
-            freshness_score = 0.3f;  // 一年内
+        if (age_days >= 0 && age_days <= static_cast<float>(max_age_days_)) {
+            // 指数衰减：score = exp(-decay_rate * age_days)
+            // decay_rate=0.01 时：第1天≈0.99, 第7天≈0.93, 第30天≈0.74, 第365天≈0.026
+            freshness_score = std::exp(-decay_rate_ * age_days);
         }
-        // 超过 max_age_days_ 为 0
+        // 超过 max_age_days_ 或发布时间为0 → 0分
 
         cand.coarse_score += freshness_score * weight_;
         cand.debug_scores["freshness"] = freshness_score;

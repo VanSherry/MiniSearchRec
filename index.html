@@ -382,7 +382,7 @@ footer a:hover{text-decoration:underline}
       <div class="b-shine"></div>
       <div class="b-eye" style="color:var(--blue)">召回层</div>
       <h3 style="font-size:22px">四路并行召回</h3>
-      <p>多路策略同时执行，RRF 倒数排名融合</p>
+      <p>std::async 并发执行，unordered_set O(1) 去重，RRF 倒数排名融合</p>
       <div style="margin-top:20px;display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(41,151,255,.08);border-radius:10px;border:1px solid rgba(41,151,255,.15)">
           <span style="color:var(--blue);font-size:16px">◈</span>
@@ -390,11 +390,11 @@ footer a:hover{text-decoration:underline}
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(48,209,88,.08);border-radius:10px;border:1px solid rgba(48,209,88,.15)">
           <span style="color:var(--green);font-size:16px">◈</span>
-          <div><div style="font-size:13px;font-weight:600">用户历史</div><div style="font-size:11px;color:var(--t1)">点击/点赞历史 · ≤200条</div></div>
+          <div><div style="font-size:13px;font-weight:600">用户历史</div><div style="font-size:11px;color:var(--t1)">query 相关性过滤 · ≤200条</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,159,10,.08);border-radius:10px;border:1px solid rgba(255,159,10,.15)">
           <span style="color:var(--orange);font-size:16px">◈</span>
-          <div><div style="font-size:13px;font-weight:600">热门内容</div><div style="font-size:11px;color:var(--t1)">log(click)×0.6 · ≤100条</div></div>
+          <div><div style="font-size:13px;font-weight:600">热门内容</div><div style="font-size:11px;color:var(--t1)">热榜缓存5min刷新 · ≤100条</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(191,90,242,.08);border-radius:10px;border:1px solid rgba(191,90,242,.15)">
           <span style="color:var(--purple);font-size:16px">◈</span>
@@ -423,7 +423,7 @@ footer a:hover{text-decoration:underline}
       <div class="b-shine"></div>
       <div class="b-eye" style="color:var(--purple)">精排</div>
       <h3>LightGBM LTR</h3>
-      <p>LambdaRank 排序学习，6 维特征，NDCG@10 优化</p>
+      <p>LambdaRank 排序学习，<strong>10 维特征</strong>（含类别匹配/标签命中），NDCG@10 优化</p>
       <div class="b-num" style="color:var(--purple);opacity:.5">LTR</div>
       <div style="margin-top:8px;font-size:12px;color:var(--t2)">无模型时自动降级内置规则树</div>
     </div>
@@ -433,7 +433,7 @@ footer a:hover{text-decoration:underline}
       <div class="b-shine"></div>
       <div class="b-eye" style="color:var(--orange)">重排</div>
       <h3>MMR 多样性</h3>
-      <p style="font-size:13px">Maximal Marginal Relevance</p>
+      <p style="font-size:13px">中文字符级 Jaccard · UTF-8 逐字分词</p>
       <div class="b-num" style="color:var(--orange);opacity:.6;font-size:52px">λ=0.7</div>
     </div>
 
@@ -451,7 +451,7 @@ footer a:hover{text-decoration:underline}
       <div class="b-shine"></div>
       <div class="b-eye" style="color:var(--teal)">实验</div>
       <h3>A/B 框架</h3>
-      <p style="font-size:13px">一致性 Hash 分桶，策略热插拔</p>
+      <p style="font-size:13px">已接入 Pipeline，一致性 Hash 分桶，策略热插拔</p>
       <div class="b-num" style="color:var(--teal);opacity:.5;font-size:52px">A/B</div>
     </div>
 
@@ -554,23 +554,24 @@ footer a:hover{text-decoration:underline}
       </div>
       <div class="pipe-panel" id="pp2">
         <div class="pipe-title">多路并行召回</div>
-        <div class="pipe-desc">四路并行执行。倒排索引基于 BM25 IDF 加权；用户历史读取 UserProfile；热门内容按热度分排序；向量召回 Faiss HNSW 近似最近邻。最终 RRF 融合去重。</div>
+        <div class="pipe-desc">四路 <code>std::async</code> 并发执行，各路独立 sub_session 互不阻塞。用户历史召回加入 query terms 相关性过滤，热门内容维护 5 分钟刷新的热榜缓存（避免全表扫描）。最终 unordered_set O(1) 合并去重 + RRF 融合。</div>
         <div class="pipe-flow">
-          <div class="pf-box" style="border-color:rgba(41,151,255,.4)">倒排 ≤1000</div><span class="pf-sep">+</span>
-          <div class="pf-box" style="border-color:rgba(48,209,88,.4)">历史 ≤200</div><span class="pf-sep">+</span>
-          <div class="pf-box" style="border-color:rgba(255,159,10,.4)">热门 ≤100</div><span class="pf-sep">+</span>
+          <div class="pf-box" style="border-color:rgba(41,151,255,.4)">倒排 ≤1000</div><span class="pf-sep">∥</span>
+          <div class="pf-box" style="border-color:rgba(48,209,88,.4)">历史 ≤200</div><span class="pf-sep">∥</span>
+          <div class="pf-box" style="border-color:rgba(255,159,10,.4)">热门 ≤100</div><span class="pf-sep">∥</span>
           <div class="pf-box" style="border-color:rgba(191,90,242,.4)">向量 ≤200</div><span class="pf-sep">→</span>
+          <div class="pf-box">合并去重</div><span class="pf-sep">→</span>
           <div class="pf-box">RRF 融合</div>
         </div>
         <div class="pipe-kpis">
           <div class="kpi"><div class="kpi-val" style="color:var(--blue)">~1500</div><div class="kpi-label">融合后候选</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--green)">10–30ms</div><div class="kpi-label">典型耗时</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">RRF</div><div class="kpi-label">融合策略</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--green)">10–20ms</div><div class="kpi-label">典型耗时（并行）</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">O(1)</div><div class="kpi-label">去重复杂度</div></div>
         </div>
       </div>
       <div class="pipe-panel" id="pp3">
         <div class="pipe-title">粗排</div>
-        <div class="pipe-desc">三路打分并行计算：BM25 相关性（k1=1.5, b=0.75）、质量分（click/like/quality）、时效性分（分段衰减）。tanh 归一化后加权融合，截断 Top 500。</div>
+        <div class="pipe-desc">三路打分并行计算：BM25 相关性（k1=1.5, b=0.75）、质量分（click/like/quality）、时效性分（指数衰减 exp(-decay_rate × age_days)，decay_rate=0.01 平滑连续）。tanh 归一化后加权融合，截断 Top 500。</div>
         <div class="pipe-flow">
           <div class="pf-box">BM25Scorer ×0.6</div><span class="pf-sep">+</span>
           <div class="pf-box">QualityScorer ×0.2</div><span class="pf-sep">+</span>
@@ -580,14 +581,14 @@ footer a:hover{text-decoration:underline}
         <div class="pipe-kpis">
           <div class="kpi"><div class="kpi-val" style="color:var(--blue)">500</div><div class="kpi-label">输出候选</div></div>
           <div class="kpi"><div class="kpi-val" style="color:var(--green)">5–15ms</div><div class="kpi-label">典型耗时</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">tanh</div><div class="kpi-label">归一化</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">exp 衰减</div><div class="kpi-label">新鲜度算法</div></div>
         </div>
       </div>
       <div class="pipe-panel" id="pp4">
         <div class="pipe-title">LightGBM 精排</div>
-        <div class="pipe-desc">提取 6 维特征（query_len、bm25、quality、freshness、log_click、log_like），调用 LGBM_BoosterPredictForMat C API 批量推理。无模型时降级内置 3 棵决策树 ensemble，始终有精排分输出。</div>
+        <div class="pipe-desc">提取 <strong>10 维特征</strong>（query_len、bm25、quality、freshness、log_click、log_like、title_len、tag_match_count、category_match、recall_source_id），调用 LGBM_BoosterPredictForMat C API 批量推理。无模型时降级内置 3 棵决策树 ensemble，始终有精排分输出。</div>
         <div class="pipe-flow">
-          <div class="pf-box">6 维特征</div><span class="pf-sep">→</span>
+          <div class="pf-box">10 维特征</div><span class="pf-sep">→</span>
           <div class="pf-box">LGBM C API</div><span class="pf-sep">→</span>
           <div class="pf-box">fine_score</div><span class="pf-sep">→</span>
           <div class="pf-box">Top 100</div>
@@ -600,10 +601,11 @@ footer a:hover{text-decoration:underline}
       </div>
       <div class="pipe-panel" id="pp5">
         <div class="pipe-title">过滤 + MMR 重排</div>
-        <div class="pipe-desc">去重（标题 Jaccard ≥0.9）→ 质量过滤（quality_score / content_length）→ 黑名单 → Spam 检测 → MMR 多样性重排（λ×相关性 − (1−λ)×标题相似度）→ Top 20。</div>
+        <div class="pipe-desc">去重（标题 Jaccard ≥0.9，<strong>UTF-8 字符级分词支持中文</strong>）→ 质量过滤（quality_score / content_length）→ Spam 检测 → 黑名单过滤 → MMR 多样性重排（λ×相关性 − (1−λ)×相似度，中文逐字 Jaccard）→ Top 20。</div>
         <div class="pipe-flow">
           <div class="pf-box">DedupFilter</div><span class="pf-sep">→</span>
           <div class="pf-box">QualityFilter</div><span class="pf-sep">→</span>
+          <div class="pf-box">SpamFilter</div><span class="pf-sep">→</span>
           <div class="pf-box">BlacklistFilter</div><span class="pf-sep">→</span>
           <div class="pf-box">MMRReranker</div><span class="pf-sep">→</span>
           <div class="pf-box">Top 20</div>
@@ -611,7 +613,7 @@ footer a:hover{text-decoration:underline}
         <div class="pipe-kpis">
           <div class="kpi"><div class="kpi-val" style="color:var(--blue)">20</div><div class="kpi-label">最终返回</div></div>
           <div class="kpi"><div class="kpi-val" style="color:var(--green)">2–5ms</div><div class="kpi-label">典型耗时</div></div>
-          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">λ=0.7</div><div class="kpi-label">多样性权重</div></div>
+          <div class="kpi"><div class="kpi-val" style="color:var(--orange)">4 层过滤</div><div class="kpi-label">内容安全</div></div>
         </div>
       </div>
       <div class="pipe-panel" id="pp6">
@@ -870,13 +872,16 @@ footer a:hover{text-decoration:underline}
       <tbody>
         <tr><td>InvertedIndex</td><td>Earlybird</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>VectorIndex (Faiss HNSW)</td><td>SimClusters ANN</td><td><span class="opt">◎ 需 Faiss</span></td></tr>
-        <tr><td>UserHistoryRecall</td><td>UTEG</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>UserHistoryRecall（query 相关性过滤）</td><td>UTEG</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>HotContentRecall（热榜缓存）</td><td>Trending</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>BM25ScorerProcessor</td><td>Light Ranker</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>LGBMScorerProcessor</td><td>Heavy Ranker</td><td><span class="opt">◎ 需 LightGBM</span></td></tr>
+        <tr><td>LGBMScorerProcessor（10 维特征）</td><td>Heavy Ranker</td><td><span class="opt">◎ 需 LightGBM</span></td></tr>
         <tr><td>dump_train + train_rank_model</td><td>ML Platform</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>MMRRerankProcessor</td><td>Diversity Ranker</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>UserProfile + EventHandler</td><td>Unified User Actions</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>ABTest</td><td>Experiment Platform</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>MMRRerankProcessor（中文字符级）</td><td>Diversity Ranker</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>UserProfile（真正 EMA 增量更新）</td><td>Real-time Feature Store</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>ABTest（已接入 Pipeline）</td><td>FeatureSwitch</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>std::async 并行召回</td><td>BatchTask</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>SpamFilter + BlacklistFilter</td><td>Trust &amp; Safety</td><td><span class="ok">✓ 已启用</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -979,7 +984,7 @@ const heroObs=new IntersectionObserver(entries=>{
   if(entries[0].isIntersecting){
     setTimeout(()=>counter(document.getElementById('cnt-files'),117),200);
     setTimeout(()=>counter(document.getElementById('cnt-recall'),4),400);
-    setTimeout(()=>counter(document.getElementById('cnt-modules'),18),600);
+    setTimeout(()=>counter(document.getElementById('cnt-modules'),20),600);
     heroObs.disconnect();
   }
 });

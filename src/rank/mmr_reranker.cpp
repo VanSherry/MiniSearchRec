@@ -24,34 +24,56 @@ bool MMRRerankProcessor::Init(const YAML::Node& config) {
 
 float MMRRerankProcessor::CalcSimilarity(const DocCandidate& a,
                                              const DocCandidate& b) {
-    // 简化版：基于标题的 Jaccard 相似度
+    // 支持中文的标题相似度：
+    //   - 英文/数字：按空格/标点分词，得到词级 token
+    //   - 中文：按 UTF-8 字符逐字切分为单字符 token
+    // 两者混合放入 set，再计算 Jaccard 相似度
     if (a.title.empty() || b.title.empty()) return 0.0f;
 
-    std::set<std::string> tokens_a;
-    std::set<std::string> tokens_b;
-
-    // 简单按空格/标点分词
-    std::string current;
-    for (char c : a.title) {
-        if (std::isspace(c) || std::ispunct(c)) {
-            if (!current.empty()) tokens_a.insert(current);
-            current.clear();
-        } else {
-            current += ::tolower(c);
+    // 提取 UTF-8 字符串中的 token set（中文逐字，英文按词）
+    auto extract_tokens = [](const std::string& s) -> std::set<std::string> {
+        std::set<std::string> tokens;
+        std::string cur_word;
+        size_t i = 0;
+        while (i < s.size()) {
+            unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c < 0x80) {
+                // ASCII 字节
+                if (std::isspace(c) || std::ispunct(c)) {
+                    if (!cur_word.empty()) {
+                        tokens.insert(cur_word);
+                        cur_word.clear();
+                    }
+                    ++i;
+                } else {
+                    cur_word += static_cast<char>(::tolower(c));
+                    ++i;
+                }
+            } else {
+                // 非 ASCII：先 flush 当前英文词
+                if (!cur_word.empty()) {
+                    tokens.insert(cur_word);
+                    cur_word.clear();
+                }
+                // 确定 UTF-8 多字节长度
+                int char_len = 1;
+                if ((c & 0xE0) == 0xC0) char_len = 2;
+                else if ((c & 0xF0) == 0xE0) char_len = 3;
+                else if ((c & 0xF8) == 0xF0) char_len = 4;
+                if (i + char_len <= s.size()) {
+                    tokens.insert(s.substr(i, char_len));
+                }
+                i += char_len;
+            }
         }
-    }
-    if (!current.empty()) tokens_a.insert(current);
+        if (!cur_word.empty()) tokens.insert(cur_word);
+        return tokens;
+    };
 
-    current.clear();
-    for (char c : b.title) {
-        if (std::isspace(c) || std::ispunct(c)) {
-            if (!current.empty()) tokens_b.insert(current);
-            current.clear();
-        } else {
-            current += ::tolower(c);
-        }
-    }
-    if (!current.empty()) tokens_b.insert(current);
+    std::set<std::string> tokens_a = extract_tokens(a.title);
+    std::set<std::string> tokens_b = extract_tokens(b.title);
+
+    if (tokens_a.empty() || tokens_b.empty()) return 0.0f;
 
     std::set<std::string> intersection, uni;
     std::set_intersection(tokens_a.begin(), tokens_a.end(),

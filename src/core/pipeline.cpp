@@ -9,6 +9,10 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
+#include <thread>
+#include <future>
+#include <mutex>
+#include <unordered_set>
 
 namespace minisearchrec {
 
@@ -181,38 +185,97 @@ int Pipeline::ExecuteRecall(Session& session) {
     LOG_INFO("ExecuteRecall start - trace_id={}, query={}, stages={}",
              session.trace_id, session.request.query(), config_.recall_stages.size());
 
+    // 多路召回并行执行：每个 processor 在独立线程中运行，
+    // 各自写入独立结果集，最后合并去重
+    struct RecallTask {
+        std::string name;
+        std::vector<DocCandidate> results;
+        int ret = 0;
+        int64_t cost_ms = 0;
+    };
+
+    std::vector<RecallTask> tasks;
+    tasks.reserve(config_.recall_stages.size());
     for (const auto& stage : config_.recall_stages) {
-        if (!stage.enable) {
-            LOG_DEBUG("Recall stage {} is disabled, skipping", stage.name);
+        if (stage.enable) {
+            RecallTask t;
+            t.name = stage.name;
+            tasks.push_back(std::move(t));
+        }
+    }
+
+    // 并行启动
+    std::vector<std::future<void>> futures;
+    futures.reserve(tasks.size());
+
+    for (size_t idx = 0; idx < tasks.size(); ++idx) {
+        const auto& stage = [&]() -> const PipelineConfig::RecallStage& {
+            for (const auto& s : config_.recall_stages) {
+                if (s.name == tasks[idx].name) return s;
+            }
+            return config_.recall_stages[0];
+        }();
+
+        futures.push_back(std::async(std::launch::async,
+            [&, idx, stage_params = stage.params, stage_name = stage.name]() mutable {
+                int64_t t0 = NowMs();
+
+                auto processor = ProcessorFactory::Instance().CreateRecall(stage_name);
+                if (!processor) {
+                    LOG_WARN("Failed to create recall processor: {}", stage_name);
+                    tasks[idx].ret = -1;
+                    return;
+                }
+                if (!processor->Init(stage_params)) {
+                    LOG_WARN("Recall processor {} Init() failed", stage_name);
+                    tasks[idx].ret = -1;
+                    return;
+                }
+
+                // 每路用独立 Session 副本（只需要 qp_info + user_profile 输入）
+                Session sub_session;
+                sub_session.qp_info      = session.qp_info;
+                sub_session.request      = session.request;
+                sub_session.trace_id     = session.trace_id;
+                sub_session.business_type = session.business_type;
+                if (session.user_profile) {
+                    sub_session.user_profile =
+                        std::make_unique<UserProfile>(*session.user_profile);
+                }
+
+                tasks[idx].ret = processor->Process(sub_session);
+                tasks[idx].results = std::move(sub_session.recall_results);
+                tasks[idx].cost_ms = NowMs() - t0;
+
+                LOG_INFO("Recall processor {} completed - cost={}ms, results={}",
+                         stage_name, tasks[idx].cost_ms, tasks[idx].results.size());
+            }
+        ));
+    }
+
+    // 等待所有召回完成
+    for (auto& f : futures) {
+        f.wait();
+    }
+
+    // 合并去重：用 unordered_set 保证 O(N) 合并
+    std::unordered_set<std::string> seen_ids;
+    for (const auto& cand : session.recall_results) {
+        seen_ids.insert(cand.doc_id);
+    }
+
+    for (auto& task : tasks) {
+        if (task.ret != 0) {
+            LOG_WARN("Recall processor {} failed, skipping merge", task.name);
             continue;
         }
-
-        int64_t processor_start = NowMs();
-
-        auto processor = ProcessorFactory::Instance().CreateRecall(stage.name);
-        if (!processor) {
-            LOG_WARN("Failed to create recall processor: {}", stage.name);
-            continue;
+        for (auto& cand : task.results) {
+            if (seen_ids.insert(cand.doc_id).second) {
+                session.recall_results.push_back(std::move(cand));
+            }
         }
-        // 初始化处理器参数
-        if (!processor->Init(stage.params)) {
-            LOG_WARN("Recall processor {} Init() failed, skipping", stage.name);
-            continue;
-        }
-
-        session.counts.recall_source_counts[stage.name] = 0;
-
-        int ret = processor->Process(session);
-        int64_t processor_cost = NowMs() - processor_start;
-
-        if (ret != 0) {
-            LOG_WARN("Recall processor {} failed with ret={}, cost={}ms",
-                     stage.name, ret, processor_cost);
-            continue;
-        }
-
-        LOG_INFO("Recall processor {} completed - cost={}ms, results={}",
-                 stage.name, processor_cost, session.recall_results.size());
+        session.counts.recall_source_counts[task.name] =
+            static_cast<int>(task.results.size());
     }
 
     session.stats.recall_cost_ms = NowMs() - start;

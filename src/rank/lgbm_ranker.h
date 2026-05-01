@@ -22,14 +22,18 @@ namespace minisearchrec {
 
 // ============================================================
 // 特征维度说明（与训练脚本 train_rank_model.py 保持一致）
-//   feat[0]  query_len         query 分词数量（tanh 归一化）
-//   feat[1]  bm25_score        BM25 相关性分
-//   feat[2]  quality_score     质量分（点击/点赞加权）
-//   feat[3]  freshness_score   时效性分
-//   feat[4]  log_click         log(click+1) tanh 归一化
-//   feat[5]  log_like          log(like+1) tanh 归一化
+//   feat[0]  query_len           query 分词数量（tanh 归一化）
+//   feat[1]  bm25_score          BM25 相关性分
+//   feat[2]  quality_score       质量分（点击/点赞加权）
+//   feat[3]  freshness_score     时效性分（指数衰减）
+//   feat[4]  log_click           log(click+1) tanh 归一化
+//   feat[5]  log_like            log(like+1) tanh 归一化
+//   feat[6]  title_len           标题长度（tanh 归一化）
+//   feat[7]  tag_match_count     标题/类别命中 query 词数（tanh 归一化）
+//   feat[8]  category_match      用户兴趣类别与文章类别是否匹配（0/1）
+//   feat[9]  recall_source_id    召回来源编号（inverted=0/vector=1/hot=2/history=3）
 // ============================================================
-static constexpr int kNumFeatures = 6;
+static constexpr int kNumFeatures = 10;
 
 class LGBMScorerProcessor : public BaseScorerProcessor {
 public:
