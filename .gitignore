@@ -48,3 +48,4 @@ third_party/cpp-httplib/
 third_party/spdlog/
 third_party/cppjieba/
 third_party/json/
+static/
