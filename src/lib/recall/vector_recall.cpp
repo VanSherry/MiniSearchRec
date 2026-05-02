@@ -28,8 +28,8 @@ int VectorRecallProcessor::Init(const YAML::Node& config) {
 int VectorRecallProcessor::Process(Session& session) {
     if (!enabled_) return 0;
     if (!vec_idx_) {
-        std::cerr << "[VectorRecall] VectorIndex not set\n";
-        return -1;
+        // 向量索引未就绪（Faiss 未编译或未配置），静默跳过
+        return 0;
     }
     if (session.qp_info.query_embedding.empty()) {
         // Query 尚未向量化，跳过

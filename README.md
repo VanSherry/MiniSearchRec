@@ -179,7 +179,7 @@ BaseHandler::Search(session)                    ← 8 阶段 Pipeline 骨架
     │
     ├── 6. DoInterpose           ← filter + postprocess pipeline
     │       ├── DedupFilter      UTF-8 字符级 Jaccard ≥ 0.9
-    │       ├── QualityFilter    quality < 0.3 / snippet < 50
+    │       ├── QualityFilter    quality / click / content_length 过滤
     │       ├── SpamFilter       重复字符 / 全大写检测
     │       ├── BlacklistFilter  doc_id / author 黑名单
     │       └── MMRReranker      λ=0.7 多样性重排 → top-20
@@ -376,6 +376,123 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 | LGBM 精排 | < 10ms | 100 篇候选（内置规则树） |
 | Embedding | ~15ms/条 | ONNX Runtime CPU |
 | 索引构建 | < 1s | 1000 篇全量重建 |
+
+---
+
+## ⚙️ 配置参数调参指南
+
+所有参数均在 YAML 中配置，修改后重启服务即生效，无需改代码。
+
+### Search Pipeline（`config/biz/search.yaml`）
+
+#### 召回阶段
+
+| Processor | 参数 | 默认值 | 建议范围 | 说明 |
+|-----------|------|:------:|:--------:|------|
+| **InvertedRecall** | `max_recall` | 1000 | 500~5000 | 倒排召回上限，文档量大时适当提高 |
+| | `min_term_freq` | 1 | 1~3 | 最低词频阈值，提高可减少噪声但可能漏召回 |
+| **VectorRecall** | `enable` | true | — | 需要 Faiss/向量索引，无索引时自动跳过 |
+| | `top_k` | 200 | 100~500 | 向量近邻数量 |
+| | `similarity_threshold` | 0.3 | 0.2~0.6 | 语义相似度阈值，越高越精准但召回越少 |
+| | `embedding_dim` | 768 | — | 须与 Embedding 模型维度一致（bge-base-zh = 768） |
+| **UserHistoryRecall** | `max_recall` | 200 | 50~500 | 用户历史召回上限 |
+| | `history_window_days` | 30 | 7~90 | 历史行为窗口（天） |
+| **HotContentRecall** | `max_recall` | 100 | 50~200 | 热门内容召回上限 |
+| | `time_window_hours` | 24 | 6~72 | 热门内容时间窗口（小时） |
+| | `refresh_interval_sec` | 300 | 60~600 | 热榜缓存刷新间隔（秒） |
+
+#### 粗排阶段（权重之和建议为 1.0）
+
+| Processor | 参数 | 默认值 | 建议范围 | 说明 |
+|-----------|------|:------:|:--------:|------|
+| **BM25Scorer** | `weight` | 0.6 | 0.4~0.8 | BM25 在粗排中的权重，**核心打分器** |
+| | `k1` | 1.5 | 1.2~2.0 | 词频饱和参数，越大对高频词越敏感 |
+| | `b` | 0.75 | 0.5~1.0 | 文档长度归一化，0=忽略长度，1=完全归一化 |
+| **QualityScorer** | `weight` | 0.2 | 0.1~0.3 | 质量分权重 |
+| | `click_weight` | 0.3 | — | 点击数在质量分中的占比 |
+| | `like_weight` | 0.4 | — | 点赞数在质量分中的占比 |
+| | `quality_weight` | 0.3 | — | 文档内在质量分的占比 |
+| **FreshnessScorer** | `weight` | 0.2 | 0.1~0.3 | 新鲜度权重，资讯类场景可提高到 0.3~0.4 |
+| | `decay_rate` | 0.01 | 0.005~0.05 | 衰减速率，越大老文档分数下降越快 |
+| | `max_age_days` | 365 | 30~730 | 超过此天数分数为 0 |
+
+#### 精排阶段
+
+| Processor | 参数 | 默认值 | 说明 |
+|-----------|------|:------:|------|
+| **LGBMScorer** | `weight` | 0.8 | 精排分对最终排序的权重 |
+| | `model_path` | `./models/rank_model.txt` | LightGBM 模型文件路径，无文件时降级为内置规则决策树 |
+| | `num_trees` | 100 | 模型树数量（仅训练时参考） |
+
+#### 过滤阶段
+
+| Processor | 参数 | 默认值 | 建议范围 | 说明 |
+|-----------|------|:------:|:--------:|------|
+| **DedupFilter** | `similarity_threshold` | 0.9 | 0.8~0.95 | Jaccard 去重阈值，越低过滤越激进 |
+| **QualityFilter** | `min_quality_score` | 0.0 | 0.0~0.3 | **⚠️ 新入库文档默认 quality_score=0**，设过高会误杀 |
+| | `min_click_count` | 0 | 0~5 | 最低点击数，新文档建议设 0 |
+| | `min_content_length` | 10 | 10~100 | 最短内容长度（字符），过滤空内容 |
+| **SpamFilter** | `spam_threshold` | 0.8 | 0.6~0.9 | 垃圾分阈值，越低过滤越严格 |
+| **BlacklistFilter** | `blacklist_file` | `./config/blacklist.txt` | — | 黑名单文件路径，每行一个 doc_id 或 author |
+
+#### 后处理阶段
+
+| Processor | 参数 | 默认值 | 建议范围 | 说明 |
+|-----------|------|:------:|:--------:|------|
+| **MMRReranker** | `lambda` | 0.7 | 0.5~0.9 | 相关性 vs 多样性平衡，越大越偏相关性 |
+| | `top_k` | 20 | 10~50 | 最终返回结果上限 |
+
+### Sug 搜索建议（`config/biz/sug.yaml`）
+
+| 参数 | 默认值 | 说明 |
+|------|:------:|------|
+| `max_results` | 8 | 返回建议词条数 |
+| `trie.rebuild_interval_sec` | 3600 | Trie 词库重建间隔（秒） |
+| `trie.source_weights.user_query` | 1.2 | **用户搜索词权重最高**，形成数据飞轮 |
+| `trie.source_weights.title` | 1.0 | 文档标题权重 |
+| `trie.source_weights.tag` | 0.8 | 文档标签权重 |
+| `rank.prefix_match_weight` | 0.5 | 前缀匹配度在排序中的权重 |
+| `rank.freq_weight` | 0.3 | 搜索频次权重 |
+| `rank.freshness_weight` | 0.2 | 新鲜度权重 |
+
+### Hint 点后推荐（`config/biz/hint.yaml`）
+
+| 参数 | 默认值 | 说明 |
+|------|:------:|------|
+| `max_results` | 8 | 返回相关搜索词条数 |
+| `recall.tag_match.weight` | 0.4 | 标签匹配权重 |
+| `recall.behavior_cooccur.weight` | 0.4 | 行为共现权重（**数据越多效果越好**） |
+| `recall.category_hot.weight` | 0.3 | 分类热词权重 |
+| `recall.query_expand.weight` | 0.2 | 查询扩展权重 |
+| `filter.dedup_edit_distance` | 3 | 编辑距离去重阈值 |
+
+### Nav 教育页（`config/biz/nav.yaml`）
+
+| 参数 | 默认值 | 说明 |
+|------|:------:|------|
+| `max_results` | 6 | 展示热词条数 |
+| `hot_decay_half_life_days` | 7 | 热度衰减半衰期（天），越小越偏向近期热词 |
+| `recall.global_hot.weight` | 0.5 | 全局热词权重 |
+| `recall.user_history.weight` | 0.3 | 用户个人历史权重 |
+| `recall.category_hot.weight` | 0.2 | 分类热词权重 |
+| `preset_words` | 见配置 | 冷启动兜底词（无数据时展示） |
+
+### 框架配置（`config/framework.yaml`）
+
+| 参数 | 默认值 | 说明 |
+|------|:------:|------|
+| `server.port` | 8080 | HTTP 服务端口 |
+| `server.worker_threads` | 4 | 工作线程数，建议 = CPU 核数 |
+| `server.request_timeout_ms` | 200 | 请求超时（ms） |
+| `embedding.provider` | `"onnx"` | 向量模型：`onnx`（真实 embedding）/ `pseudo`（伪向量降级） |
+| `embedding.dim` | 768 | 向量维度，须与 `search.yaml` 中 `embedding_dim` 一致 |
+| `pipeline.final_result_count` | 20 | 搜索结果页默认条数 |
+| `background.auto_train.interval_hours` | 24 | 自动训练间隔（小时） |
+| `background.auto_train.min_events` | 500 | 触发提前训练的事件数阈值 |
+| `background.auto_index_rebuild.interval_hours` | 12 | 索引自动重建间隔（小时） |
+| `background.sug_trie_rebuild.interval_sec` | 3600 | Sug Trie 重建间隔（秒） |
+
+> **调参建议**：小规模（<1000 篇）保持默认即可；大规模场景重点调 `max_recall`（扩大召回量）、`BM25.weight`（核心排序信号）和 `MMR.lambda`（多样性）。`min_quality_score` 在文档没有预设质量分时建议保持 `0.0`，避免误过滤。
 
 ---
 

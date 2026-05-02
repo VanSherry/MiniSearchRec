@@ -30,7 +30,7 @@ recall_stages:
     params:
       top_k: 200
       similarity_threshold: 0.3
-      embedding_dim: 64
+      embedding_dim: 768
 
 # ── 粗排阶段 ──
 coarse_rank_stages:
@@ -69,9 +69,9 @@ filter_stages:
 
   - name: "QualityFilterProcessor"
     params:
-      min_quality_score: 0.3
+      min_quality_score: 0.0
       min_click_count: 0
-      min_content_length: 50
+      min_content_length: 10
 
   - name: "SpamFilterProcessor"
     params:
