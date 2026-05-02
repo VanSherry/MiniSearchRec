@@ -22,7 +22,7 @@ int VectorRecallProcessor::Init(const YAML::Node& config) {
     if (config["similarity_threshold"]) {
         similarity_threshold_ = config["similarity_threshold"].as<float>(0.7f);
     }
-    return true;
+    return 0;
 }
 
 int VectorRecallProcessor::Process(Session& session) {

@@ -59,7 +59,7 @@ bool IndexBuilder::BuildFromJson(const std::string& json_path) {
     return BuildFromDocs(docs);
 }
 
-bool IndexBuilder::BuildFromDocs(const std::vector<Document>& docs) {
+bool IndexBuilder::BuildFromDocs(const std::vector<Document>& docs, bool persist_to_store) {
     if (!inv_idx_ || !doc_store_) {
         std::cerr << "[IndexBuilder] Index or DocStore not set\n";
         return false;
@@ -93,8 +93,10 @@ bool IndexBuilder::BuildFromDocs(const std::vector<Document>& docs) {
             }
         }
 
-        // 存储到 SQLite
-        doc_store_->PutDoc(doc);
+        // 存储到 SQLite（仅首次从 JSON 导入时需要，从 SQLite 重建时跳过）
+        if (persist_to_store) {
+            doc_store_->PutDoc(doc);
+        }
     }
 
     std::cout << "[IndexBuilder] Index build complete. Total docs: "

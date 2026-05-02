@@ -3,6 +3,7 @@
 // ============================================================
 
 #include "framework/session/session.h"
+#include "framework/class_register.h"
 #include "utils/logger.h"
 #include <chrono>
 #include <random>
@@ -72,3 +73,17 @@ std::string Session::GenerateTraceId() {
 
 } // namespace framework
 } // namespace minisearchrec
+
+// 注册基类 Session 到反射表（nav/sug/hint 等轻业务使用）
+namespace {
+struct Session_BaseRegistrar {
+    Session_BaseRegistrar() {
+        ::minisearchrec::framework::ClassRegistry<
+            ::minisearchrec::framework::Session>::Instance()
+            .RegisterCreator("Session", []() -> std::shared_ptr<::minisearchrec::framework::Session> {
+                return std::make_shared<::minisearchrec::framework::Session>();
+            });
+    }
+};
+static Session_BaseRegistrar g_session_base_registrar;
+}

@@ -38,7 +38,8 @@ public:
     bool BuildFromJson(const std::string& json_path);
 
     // 从 Document 列表构建索引
-    bool BuildFromDocs(const std::vector<Document>& docs);
+    // persist_to_store: 是否同时写入 DocStore（从 JSON 首次导入时 true，从 SQLite 重建时 false）
+    bool BuildFromDocs(const std::vector<Document>& docs, bool persist_to_store = true);
 
     // 增量添加文档
     bool AddDocument(const Document& doc);

@@ -253,17 +253,18 @@ MiniSearchRec/
 git clone https://github.com/VanSherry/MiniSearchRec.git
 cd MiniSearchRec/MiniSearchRec
 
-# 编译
+# 编译（默认不构建测试，加快编译）
 mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
-
-# 运行测试
-ln -sf ../config config && ln -sf ../models models && ln -sf ../data data
-./test_all    # 预期：PASS=117, FAIL=0
 
 # 启动服务
 ./minisearchrec --config ./config
+
+# 如需运行测试
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+make test_all -j$(nproc)
+./test_all    # 预期：PASS=117, FAIL=0
 ```
 
 ### 依赖项

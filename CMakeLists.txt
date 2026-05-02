@@ -44,24 +44,65 @@ find_package(Protobuf REQUIRED)
 find_package(absl QUIET)
 
 # ONNX Runtime（可选：内置 embedding 模型推理）
+# 支持三种发现方式：
+#   1. find_package（Homebrew / 系统包管理器安装的 cmake config）
+#   2. -DONNXRUNTIME_ROOT=<path> 手动指定
+#   3. macOS 自动 brew --prefix / Linux 自动搜索标准路径
 find_package(onnxruntime QUIET)
 if(onnxruntime_FOUND)
-    message(STATUS "ONNX Runtime found, enabling built-in embedding model")
+    message(STATUS "ONNX Runtime found via find_package")
     add_definitions(-DHAVE_ONNXRUNTIME)
+    set(ONNXRUNTIME_LIBRARIES onnxruntime::onnxruntime)
 else()
-    # 也支持手动指定路径
-    if(DEFINED ONNXRUNTIME_ROOT)
-        set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include")
-        set(ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so")
-        if(EXISTS "${ONNXRUNTIME_INCLUDE_DIRS}/onnxruntime_cxx_api.h")
+    # 自动探测路径
+    if(NOT DEFINED ONNXRUNTIME_ROOT)
+        if(APPLE)
+            execute_process(
+                COMMAND brew --prefix onnxruntime
+                OUTPUT_VARIABLE ONNXRUNTIME_ROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+        else()
+            # Linux: 常见安装路径
+            foreach(_ort_prefix /usr/local /usr /opt/onnxruntime)
+                if(EXISTS "${_ort_prefix}/include/onnxruntime/onnxruntime_cxx_api.h"
+                   OR EXISTS "${_ort_prefix}/include/onnxruntime_cxx_api.h")
+                    set(ONNXRUNTIME_ROOT "${_ort_prefix}")
+                    break()
+                endif()
+            endforeach()
+        endif()
+    endif()
+
+    if(ONNXRUNTIME_ROOT AND EXISTS "${ONNXRUNTIME_ROOT}")
+        # 查找头文件
+        if(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime/onnxruntime_cxx_api.h")
+            set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include/onnxruntime")
+        elseif(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+            set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include")
+        endif()
+        # 查找库（自动匹配 .dylib / .so / .so.x）
+        find_library(ONNXRUNTIME_LIB onnxruntime
+            PATHS "${ONNXRUNTIME_ROOT}/lib"
+                  "${ONNXRUNTIME_ROOT}/lib64"
+            NO_DEFAULT_PATH
+        )
+        if(ONNXRUNTIME_INCLUDE_DIRS AND ONNXRUNTIME_LIB)
             message(STATUS "ONNX Runtime found at ${ONNXRUNTIME_ROOT}")
+            message(STATUS "  include: ${ONNXRUNTIME_INCLUDE_DIRS}")
+            message(STATUS "  lib: ${ONNXRUNTIME_LIB}")
             add_definitions(-DHAVE_ONNXRUNTIME)
             include_directories(${ONNXRUNTIME_INCLUDE_DIRS})
+            set(ONNXRUNTIME_LIBRARIES ${ONNXRUNTIME_LIB})
         else()
-            message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
+            message(STATUS "ONNX Runtime: headers/lib not found at ${ONNXRUNTIME_ROOT}")
         endif()
     else()
         message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
+        message(STATUS "  To enable: brew install onnxruntime (macOS)")
+        message(STATUS "             apt install libonnxruntime-dev (Ubuntu)")
+        message(STATUS "             or cmake -DONNXRUNTIME_ROOT=/path/to/onnxruntime ..")
     endif()
 endif()
 find_package(spdlog QUIET)
@@ -123,8 +164,8 @@ else()
     message(STATUS "Faiss not found, using brute-force fallback")
 endif()
 
-# 选项：是否构建测试
-option(BUILD_TESTS "Build unit tests" ON)
+# 选项：是否构建测试（默认关闭，减少编译耗时）
+option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_TOOLS "Build tools" ON)
 
 # 头文件搜索路径
@@ -344,6 +385,7 @@ target_link_libraries(minisearchrec
     $<$<BOOL:${CppJieba_FOUND}>:cppjieba>
     $<$<BOOL:${Faiss_FOUND}>:faiss>
     $<$<BOOL:${LightGBM_FOUND}>:${LIGHTGBM_LIB}>
+    $<$<BOOL:${ONNXRUNTIME_LIBRARIES}>:${ONNXRUNTIME_LIBRARIES}>
     # GCC < 9 需要显式链接 filesystem
     $<$<AND:$<CXX_COMPILER_ID:GNU>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,9.0>>:stdc++fs>
 )
@@ -409,6 +451,7 @@ if(BUILD_TESTS)
         $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
         $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog_header_only>
         $<$<BOOL:${LightGBM_FOUND}>:${LIGHTGBM_LIB}>
+        $<$<BOOL:${ONNXRUNTIME_LIBRARIES}>:${ONNXRUNTIME_LIBRARIES}>
     )
     if(APPLE)
         target_link_directories(test_all PRIVATE "${HOMEBREW_PREFIX}/opt/abseil/lib")

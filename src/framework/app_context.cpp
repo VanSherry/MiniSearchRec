@@ -94,7 +94,7 @@ bool AppContext::Initialize(const std::string& data_dir,
                         docs.push_back(doc);
                     }
                 }
-                if (index_builder_->BuildFromDocs(docs)) {
+                if (index_builder_->BuildFromDocs(docs, false)) {
                     LOG_INFO("Index rebuilt from SQLite, doc_count={}",
                              inverted_index_->GetDocCount());
                     index_builder_->SaveIndexes(index_dir);
