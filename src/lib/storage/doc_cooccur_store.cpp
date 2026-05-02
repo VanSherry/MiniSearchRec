@@ -104,7 +104,8 @@ std::vector<CooccurItem> DocCooccurStore::GetTopCooccur(const std::string& src_d
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         CooccurItem item;
-        item.dst_doc_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        item.dst_doc_id = p ? p : "";
         item.co_count   = sqlite3_column_int(stmt, 1);
         item.last_time  = sqlite3_column_int64(stmt, 2);
         results.push_back(item);

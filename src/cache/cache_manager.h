@@ -13,6 +13,7 @@
 #include <string>
 #include <optional>
 #include <memory>
+#include <atomic>
 #include "cache/lru_cache.h"
 #include "cache/redis_client.h"
 #include "search.pb.h"
@@ -82,7 +83,7 @@ private:
 
     // L2：Redis（可选）
     std::unique_ptr<RedisClient> redis_client_;
-    bool redis_connected_ = false;
+    std::atomic<bool> redis_connected_{false};
 
     // 配置
     CacheConfig config_;

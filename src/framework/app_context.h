@@ -45,16 +45,19 @@ public:
     }
 
     std::shared_ptr<DocStore> GetDocStore() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return doc_store_;
     }
 
     std::shared_ptr<IndexBuilder> GetIndexBuilder() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return index_builder_;
     }
 
     // --- Embedding 提供器（配置驱动，一键切换）---
     // 保证永远不返回 null：未初始化时使用默认 PseudoEmbeddingProvider
     std::shared_ptr<EmbeddingProvider> GetEmbeddingProvider() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         if (!embedding_provider_) {
             static auto default_provider =
                 std::make_shared<PseudoEmbeddingProvider>();
@@ -65,10 +68,12 @@ public:
 
     // --- A/B 实验框架 ---
     std::shared_ptr<ABTestManager> GetABTestManager() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return ab_test_manager_;
     }
 
     void SetABTestManager(std::shared_ptr<ABTestManager> mgr) {
+        std::lock_guard<std::mutex> lock(mutex_);
         ab_test_manager_ = std::move(mgr);
     }
 

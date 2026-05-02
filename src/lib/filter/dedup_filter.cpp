@@ -15,21 +15,41 @@ int DedupFilterProcessor::Init(const YAML::Node& config) {
     return 0;
 }
 
-// 简易字符串相似度（Jaccard 相似度基于分词）
+// UTF-8 字符级 Jaccard 相似度（支持中文）
 static float CalcSimilarity(const std::string& a, const std::string& b) {
     if (a.empty() && b.empty()) return 1.0f;
     if (a.empty() || b.empty()) return 0.0f;
 
-    // 转为小写后比较
-    std::string la = a, lb = b;
-    std::transform(la.begin(), la.end(), la.begin(), ::tolower);
-    std::transform(lb.begin(), lb.end(), lb.begin(), ::tolower);
+    // 提取 UTF-8 字符集合
+    auto extract_chars = [](const std::string& s) -> std::set<std::string> {
+        std::set<std::string> chars;
+        for (size_t i = 0; i < s.size(); ) {
+            unsigned char c = static_cast<unsigned char>(s[i]);
+            size_t len = 1;
+            if (c >= 0xF0) len = 4;
+            else if (c >= 0xE0) len = 3;
+            else if (c >= 0xC0) len = 2;
+            else if (std::isspace(c) || std::ispunct(c)) { ++i; continue; }
+            else {
+                // ASCII: 转小写
+                chars.insert(std::string(1, static_cast<char>(std::tolower(c))));
+                ++i;
+                continue;
+            }
+            if (i + len <= s.size()) {
+                chars.insert(s.substr(i, len));
+            }
+            i += len;
+        }
+        return chars;
+    };
 
-    // 简单字符级 Jaccard
-    std::set<char> set_a(la.begin(), la.end());
-    std::set<char> set_b(lb.begin(), lb.end());
+    auto set_a = extract_chars(a);
+    auto set_b = extract_chars(b);
 
-    std::set<char> intersection, uni;
+    if (set_a.empty() || set_b.empty()) return 0.0f;
+
+    std::set<std::string> intersection, uni;
     std::set_intersection(set_a.begin(), set_a.end(),
                           set_b.begin(), set_b.end(),
                           std::inserter(intersection, intersection.begin()));

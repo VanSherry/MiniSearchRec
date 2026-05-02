@@ -129,12 +129,16 @@ bool DocStore::GetDoc(const std::string& doc_id, Document& doc) {
 
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        doc.set_doc_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
-        doc.set_title(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
-        doc.set_content(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        doc.set_author(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        auto safe_text = [&](int col) -> std::string {
+            const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
+            return p ? p : "";
+        };
+        doc.set_doc_id(safe_text(0));
+        doc.set_title(safe_text(1));
+        doc.set_content(safe_text(2));
+        doc.set_author(safe_text(3));
         doc.set_publish_time(sqlite3_column_int64(stmt, 4));
-        doc.set_category(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
+        doc.set_category(safe_text(5));
 
         // 解析 tags
         const char* tags_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
@@ -182,7 +186,8 @@ std::vector<std::string> DocStore::GetAllDocIds() {
     if (rc != SQLITE_OK) return ids;
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        ids.push_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+        const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (p) ids.push_back(p);
     }
 
     sqlite3_finalize(stmt);

@@ -116,16 +116,17 @@ void DocHandler::HandleDelete(const httplib::Request& req,
         return;
     }
 
-    // BUG-1 修复：同步清理倒排索引，否则删除后文档仍出现在搜索结果中
-    auto inv_idx = AppContext::Instance().GetInvertedIndex();
-    if (inv_idx) {
-        inv_idx->RemoveDocument(doc_id);
-    }
-
+    // 先从 DocStore 删除（确认文档存在）
     if (!doc_store->DeleteDoc(doc_id)) {
         res.set_content(MakeError(404, "Document not found: " + doc_id), "application/json");
         res.status = 404;
         return;
+    }
+
+    // DocStore 删除成功后再清理倒排索引
+    auto inv_idx = AppContext::Instance().GetInvertedIndex();
+    if (inv_idx) {
+        inv_idx->RemoveDocument(doc_id);
     }
 
     // 持久化更新后的索引

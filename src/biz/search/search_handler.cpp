@@ -57,15 +57,15 @@ int32_t SearchBizHandler::ExtraPreSearch(framework::Session* session) const {
     // AB 实验（从配置读取覆盖参数）
     auto ab_str = session->Get("ab_coarse_top_k");
     if (!ab_str.empty()) {
-        ss->ab_override.coarse_top_k = std::stoi(ab_str);
+        try { ss->ab_override.coarse_top_k = std::stoi(ab_str); } catch (...) {}
     }
     ab_str = session->Get("ab_fine_top_k");
     if (!ab_str.empty()) {
-        ss->ab_override.fine_top_k = std::stoi(ab_str);
+        try { ss->ab_override.fine_top_k = std::stoi(ab_str); } catch (...) {}
     }
     ab_str = session->Get("ab_mmr_lambda");
     if (!ab_str.empty()) {
-        ss->ab_override.mmr_lambda = std::stof(ab_str);
+        try { ss->ab_override.mmr_lambda = std::stof(ab_str); } catch (...) {}
     }
 
     return 0;
@@ -256,8 +256,8 @@ int ReloadRankModel(const std::string& new_model_path) {
     return count;
 }
 
+} // namespace minisearchrec
+
 // 注册到框架
 using namespace minisearchrec;
 REGISTER_MSR_HANDLER(SearchBizHandler);
-
-} // namespace minisearchrec

@@ -97,7 +97,7 @@ public:
         std::string& val = store_[key];
         int64_t current = 0;
         if (!val.empty()) {
-            current = std::stoll(val);
+            try { current = std::stoll(val); } catch (...) { current = 0; }
         }
         current += delta;
         val = std::to_string(current);

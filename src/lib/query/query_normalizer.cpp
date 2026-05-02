@@ -73,22 +73,22 @@ std::string QueryNormalizer::FullWidthToHalfWidth(const std::string& query) {
             unsigned char c1 = query[i+1];
             unsigned char c2 = query[i+2];
             if (c1 == 0xBC && c2 >= 0x81 && c2 <= 0xBF) {
-                // 全角标点/字母
+                // 全角大写字母 Ａ-Ｚ: EF BC A1 ~ EF BC BA
                 if (c2 >= 0xA1 && c2 <= 0xBA) {
                     result += (c2 - 0xA1 + 'A');
                     i += 2;
                     continue;
                 }
-            } else if (c1 == 0xBD && c2 >= 0x80 && c2 <= 0x9E) {
-                // 全角小写字母
-                if (c2 >= 0x81 && c2 <= 0x9A) {
-                    result += (c2 - 0x81 + 'a');
+                // 全角数字 ０-９: EF BC 90 ~ EF BC 99
+                if (c2 >= 0x90 && c2 <= 0x99) {
+                    result += (c2 - 0x90 + '0');
                     i += 2;
                     continue;
                 }
-                // 全角数字
-                if (c2 >= 0x90 && c2 <= 0x99) {
-                    result += (c2 - 0x90 + '0');
+            } else if (c1 == 0xBD && c2 >= 0x80 && c2 <= 0x9E) {
+                // 全角小写字母 ａ-ｚ: EF BD 81 ~ EF BD 9A
+                if (c2 >= 0x81 && c2 <= 0x9A) {
+                    result += (c2 - 0x81 + 'a');
                     i += 2;
                     continue;
                 }
@@ -141,14 +141,14 @@ std::string QueryNormalizer::RemoveStopWords(const std::string& query) {
 }
 
 std::string QueryNormalizer::SpellCorrection(const std::string& query) {
-    // 简化版本：实际项目应使用编辑距离+词典
-    // 这里只做简单处理：去除重复字符（如"gooogle" -> "google"）
+    // 简化版本：去除3个以上连续重复字母（如"gooogle" -> "google"），保留正常双写
     std::string result;
     for (size_t i = 0; i < query.length(); ++i) {
-        if (i > 0 && query[i] == query[i-1] && 
-            std::isalpha(static_cast<unsigned char>(query[i]))) {
-            // 跳过重复字母
-            continue;
+        unsigned char uc = static_cast<unsigned char>(query[i]);
+        // 只处理 ASCII 字母，且需要连续3个以上才跳过
+        if (i >= 2 && uc < 0x80 && std::isalpha(uc) &&
+            query[i] == query[i-1] && query[i-1] == query[i-2]) {
+            continue;  // 跳过第3个及以上的连续重复字母
         }
         result += query[i];
     }

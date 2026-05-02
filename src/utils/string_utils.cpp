@@ -140,9 +140,12 @@ std::vector<std::string> Tokenize(const std::string& text) {
 bool ContainsChinese(const std::string& str) {
     for (size_t i = 0; i < str.length(); ) {
         unsigned char c = str[i];
-        if ((c & 0xF0) == 0xE0) {
-            // 可能是中文（三字节 UTF-8）
-            // 简单判断：检查是否在常用中文 Unicode 范围内
+        if (c < 0x80) {
+            ++i;
+        } else if (c < 0xE0) {
+            i += 2;
+        } else if (c < 0xF0) {
+            // 三字节 UTF-8：检查是否在常用中文 Unicode 范围内
             if (i + 2 < str.length()) {
                 uint32_t code = (static_cast<uint32_t>(str[i]) & 0x0F) << 12 |
                                (static_cast<uint32_t>(str[i+1]) & 0x3F) << 6  |
@@ -151,8 +154,10 @@ bool ContainsChinese(const std::string& str) {
                     return true;
                 }
             }
+            i += 3;
+        } else {
+            i += 4;
         }
-        i++;
     }
     return false;
 }

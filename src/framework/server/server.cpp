@@ -145,16 +145,20 @@ void Server::HandleRequest(const std::string& business_type,
     // 业务的 SetResponse 阶段已经将完整 JSON 写入 items_json
     // 如果业务已经序列化了完整响应（包含 ret/err_msg/results），直接返回
     if (!response.items_json.empty() && response.items_json[0] == '{') {
-        // items_json 是完整的 JSON 对象（业务自行序列化）
-        // 注入 cost_ms
-        // 简单方式：在 JSON 末尾的 } 前插入 cost_ms
-        std::string json_str = response.items_json;
-        auto last_brace = json_str.rfind('}');
-        if (last_brace != std::string::npos) {
-            json_str.insert(last_brace,
-                ",\n  \"cost_ms\" : " + std::to_string(cost_ms));
+        // 用 JSON 库安全地添加 cost_ms 字段
+        Json::Value parsed;
+        Json::CharReaderBuilder rb;
+        std::string errs;
+        std::istringstream iss(response.items_json);
+        if (Json::parseFromStream(rb, iss, &parsed, &errs)) {
+            parsed["cost_ms"] = static_cast<Json::Int64>(cost_ms);
+            Json::StreamWriterBuilder writer;
+            writer["indentation"] = "  ";
+            res.set_content(Json::writeString(writer, parsed), "application/json");
+        } else {
+            // 解析失败，直接返回原始 JSON
+            res.set_content(response.items_json, "application/json");
         }
-        res.set_content(json_str, "application/json");
     } else {
         // 兜底：构造简单 JSON
         Json::Value resp_json;

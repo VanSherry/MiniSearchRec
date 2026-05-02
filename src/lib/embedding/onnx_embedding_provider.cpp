@@ -55,7 +55,13 @@ std::vector<std::string> WordPieceTokenizer::BasicTokenize(const std::string& te
     std::string processed;
     for (size_t i = 0; i < text.size(); ) {
         unsigned char c = text[i];
-        if (c >= 0xE0 && i + 2 < text.size()) {
+        if (c >= 0xF0 && i + 3 < text.size()) {
+            // UTF-8 4字节（emoji等）→ 前后加空格
+            processed += ' ';
+            processed += text.substr(i, 4);
+            processed += ' ';
+            i += 4;
+        } else if (c >= 0xE0 && i + 2 < text.size()) {
             // UTF-8 3字节（中文）→ 前后加空格
             processed += ' ';
             processed += text.substr(i, 3);
@@ -64,11 +70,6 @@ std::vector<std::string> WordPieceTokenizer::BasicTokenize(const std::string& te
         } else if (c >= 0xC0 && i + 1 < text.size()) {
             processed += text.substr(i, 2);
             i += 2;
-        } else if (c >= 0xF0 && i + 3 < text.size()) {
-            processed += ' ';
-            processed += text.substr(i, 4);
-            processed += ' ';
-            i += 4;
         } else {
             processed += static_cast<char>(std::tolower(c));
             ++i;

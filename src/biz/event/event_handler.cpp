@@ -37,7 +37,7 @@ public:
 
     // 初始化（幂等）
     bool Init(const std::string& db_path = "./data/events.db") {
-        std::lock_guard<std::mutex> lk(mu_);
+        std::lock_guard<std::recursive_mutex> lk(mu_);
         if (db_) return true;
 
         try { std::filesystem::create_directories("./data"); } catch (...) {}
@@ -109,7 +109,7 @@ public:
                     int64_t like_count,
                     float doc_quality,
                     int64_t ts) {
-        std::lock_guard<std::mutex> lk(mu_);
+        std::lock_guard<std::recursive_mutex> lk(mu_);
         if (!db_) {
             Init();
             if (!db_) return false;
@@ -160,7 +160,7 @@ public:
 private:
     EventDB() = default;
     sqlite3* db_ = nullptr;
-    std::mutex mu_;
+    std::recursive_mutex mu_;
 };
 
 } // anonymous namespace
@@ -267,6 +267,10 @@ void EventHandler::Handle(const httplib::Request& req,
         std::string last_doc_id;
         {
             std::lock_guard<std::mutex> lk(s_last_click_mutex);
+            // 防止无界增长：超过 10000 条时清理
+            if (s_last_click_map.size() > 10000) {
+                s_last_click_map.clear();
+            }
             auto it = s_last_click_map.find(uid);
             if (it != s_last_click_map.end()) {
                 last_doc_id = it->second;

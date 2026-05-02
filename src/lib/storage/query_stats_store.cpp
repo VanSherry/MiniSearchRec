@@ -116,7 +116,7 @@ std::vector<QueryStatItem> QueryStatsStore::GetByPrefix(const std::string& prefi
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         QueryStatItem item;
-        item.query     = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        { const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)); item.query = p ? p : ""; }
         item.freq      = sqlite3_column_int(stmt, 1);
         item.last_time = sqlite3_column_int64(stmt, 2);
         const char* src = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
@@ -144,7 +144,7 @@ std::vector<QueryStatItem> QueryStatsStore::GetTopN(int n) {
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         QueryStatItem item;
-        item.query     = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        { const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)); item.query = p ? p : ""; }
         item.freq      = sqlite3_column_int(stmt, 1);
         item.last_time = sqlite3_column_int64(stmt, 2);
         const char* src = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
@@ -173,7 +173,7 @@ std::vector<QueryStatItem> QueryStatsStore::GetTopNBySource(const std::string& s
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         QueryStatItem item;
-        item.query     = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        { const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)); item.query = p ? p : ""; }
         item.freq      = sqlite3_column_int(stmt, 1);
         item.last_time = sqlite3_column_int64(stmt, 2);
         const char* src = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));

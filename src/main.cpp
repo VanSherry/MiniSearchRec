@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
     // 初始化全局应用上下文（加载/构建索引）
     const auto& global_cfg = ConfigManager::Instance().GetGlobalConfig();
     LOG_INFO("Initializing AppContext, data_dir={}, index_dir={}, rebuild={}",
-             global_cfg.index.data_dir, global_cfg.index.index_dir, force_rebuild);
+             global_cfg.index.data_dir, global_cfg.index.index_dir, global_cfg.index.rebuild_on_start);
 
     if (!AppContext::Instance().Initialize(
             global_cfg.index.data_dir,

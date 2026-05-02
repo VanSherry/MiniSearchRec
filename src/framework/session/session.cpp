@@ -38,6 +38,12 @@ int32_t Session::Init(const CommonRequest& req) {
     metrics.init_cost_us = std::chrono::duration_cast<std::chrono::microseconds>(
         init_end - begin_time).count();
 
+    // 设置超时 deadline（基于 system_clock 绝对时间）
+    if (timeout_ms > 0) {
+        deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() + timeout_ms;
+    }
+
     return 0;
 }
 
@@ -56,7 +62,7 @@ std::string Session::GenerateTraceId() {
         now.time_since_epoch()
     ).count();
 
-    static std::mt19937 rng(std::random_device{}());
+    thread_local static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(1000, 9999);
 
     std::ostringstream oss;

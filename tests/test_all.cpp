@@ -200,11 +200,12 @@ void test_inverted_index() {
 
     // IDF（BM25 变体：log((N-df+0.5)/(df+0.5))）
     // "烹" 只在 doc3 一篇中出现，df=1, N=3 → log(2.5/1.5) > 0
-    // "学" 在 doc1+doc2 两篇中出现，df=2, N=3 → log(1.5/2.5) < 0（会被 clamp 到 0）
+    // "学" 在 doc1+doc2 两篇中出现，df=2, N=3 → log(1.5/2.5) < 0（BM25 IDF 特性）
     float idf_rare = idx.CalculateIDF("烹");    // df=1 → IDF > 0
-    float idf_common = idx.CalculateIDF("学");  // df=2 → IDF ≈ 0（BM25 IDF 特性）
+    float idf_common = idx.CalculateIDF("学");  // df=2 → IDF < 0（BM25 IDF 特性）
     EXPECT(idf_rare > idf_common, "罕见字 IDF 更高");
     EXPECT(idf_rare > 0.0f, "只出现在 1 篇文档的字 IDF > 0");
+    EXPECT(idf_common < 0.0f, "高频字 BM25 IDF < 0（df > N/2 时的正常行为）");
 
     // 平均文档长度
     float avg = idx.GetAvgDocLen();
