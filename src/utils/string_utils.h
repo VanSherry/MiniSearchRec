@@ -49,6 +49,9 @@ bool IsBlank(const std::string& str);
 // UTF-8 安全截断（不会在多字节字符中间截断）
 std::string Utf8Truncate(const std::string& str, size_t max_bytes);
 
+// UTF-8 字符数（非字节数）
+size_t Utf8Len(const std::string& str);
+
 } // namespace utils
 } // namespace minisearchrec
 

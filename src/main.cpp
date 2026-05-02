@@ -6,11 +6,14 @@
 #include <memory>
 #include <csignal>
 #include <atomic>
-#include "core/config_manager.h"
-#include "core/factory.h"
-#include "core/app_context.h"
-#include "core/background_scheduler.h"
-#include "service/http_server.h"
+#include "framework/config/config_manager.h"
+#include "framework/app_context.h"
+#include "scheduler/scheduler.h"
+#include "gateway/http_server.h"
+#include "framework/server/server.h"
+#include "framework/handler/handler_manager.h"
+#include "framework/session/session_factory.h"
+#include "framework/processor/processor_pipeline.h"
 #include "utils/logger.h"
 
 // =========================================================
@@ -29,18 +32,24 @@ static void SignalHandler(int sig) {
 }
 
 void PrintBanner() {
-    std::cout << "============================================\n";
-    std::cout << "   MiniSearchRec v1.1\n";
-    std::cout << "   Mini Search Recommendation Engine\n";
-    std::cout << "   https://github.com/VanSherry/MiniSearchRec\n";
-    std::cout << "============================================\n";
+    std::cout << R"(
+
+        __  __ ___  ____
+       |  \/  / __||  _ \
+       | |\/| \__ \| |_) |
+       |_|  |_|___/|_| \_\  v2.0
+
+       M i n i S e a r c h R e c
+
+       github.com/VanSherry/MiniSearchRec
+
+)" << std::endl;
 }
 
 void PrintUsage(const char* prog) {
     std::cout << "Usage: " << prog << " [options]\n";
     std::cout << "Options:\n";
     std::cout << "  --config <path>     Config directory path (default: ./config)\n";
-    std::cout << "  --build-index       Force rebuild index from data directory\n";
     std::cout << "  --help              Show this help message\n";
 }
 
@@ -55,7 +64,6 @@ int main(int argc, char* argv[]) {
 
     // 解析命令行参数
     std::string config_dir  = "./config";
-    bool force_rebuild      = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -64,8 +72,6 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "--config" && i + 1 < argc) {
             config_dir = argv[++i];
-        } else if (arg == "--build-index") {
-            force_rebuild = true;
         }
     }
 
@@ -93,9 +99,13 @@ int main(int argc, char* argv[]) {
         LOG_INFO("Logger re-initialized: level={}, file={}", log_cfg.level, log_cfg.file);
     }
 
-    // 注册所有内置处理器（Factory）
-    RegisterBuiltinProcessors();
-    LOG_INFO("Builtin processors registered.");
+    // 初始化框架层 Processor Pipeline（从 YAML 配置驱动，替代旧的手动注册）
+    if (!framework::PipelineManager::Instance().Init(config_dir)) {
+        LOG_ERROR("PipelineManager initialization failed!");
+        std::cerr << "[ERROR] PipelineManager initialization failed!\n";
+        return 1;
+    }
+    LOG_INFO("PipelineManager initialized (config-driven processors).");
 
     // 初始化全局应用上下文（加载/构建索引）
     const auto& global_cfg = ConfigManager::Instance().GetGlobalConfig();
@@ -105,45 +115,39 @@ int main(int argc, char* argv[]) {
     if (!AppContext::Instance().Initialize(
             global_cfg.index.data_dir,
             global_cfg.index.index_dir,
-            force_rebuild || global_cfg.index.rebuild_on_start)) {
+            global_cfg.index.rebuild_on_start)) {
         LOG_ERROR("AppContext initialization failed!");
         std::cerr << "[ERROR] AppContext initialization failed!\n";
         return 1;
     }
     LOG_INFO("AppContext ready.");
 
-    // 如果只是构建索引，退出
-    if (force_rebuild) {
-        LOG_INFO("Index rebuild complete. Exiting.");
-        std::cout << "[INFO] Index rebuild complete.\n";
-        utils::ShutdownLogger();
-        return 0;
+    // 业务模块初始化由框架在 HandlerManager::Init → handler->Init → ExtraInit 中自动完成
+    // 新增业务不需要改 main.cpp
+
+    // ── 初始化主流程框架（配置驱动，对标通用搜索框架 Server::Init
+    {
+        using namespace framework;
+
+        Server::Instance().Init();
+
+        // 从 framework.yaml 配置文件自动注册所有 Handler + Session
+        // 新增业务只需改配置文件 + 写 Handler 代码，不碰 main.cpp
+        int32_t ret = HandlerManager::Instance().InitFromConfig(config_dir + "/framework.yaml");
+        if (ret != 0) {
+            LOG_ERROR("HandlerManager::InitFromConfig failed, ret={}", ret);
+            std::cerr << "[ERROR] HandlerManager initialization failed!\n";
+            return 1;
+        }
+
+        LOG_INFO("Framework initialized: {} handlers registered.",
+                 HandlerManager::Instance().GetAllBusinessTypes().size());
     }
 
-    // ── 启动后台调度器 ──
-    BackgroundScheduler scheduler;
-    {
-        const auto& bg_cfg = global_cfg.background;
-
-        AutoTrainConfig train_cfg;
-        train_cfg.enable = bg_cfg.auto_train.enable;
-        train_cfg.interval_hours = bg_cfg.auto_train.interval_hours;
-        train_cfg.min_events = bg_cfg.auto_train.min_events;
-        train_cfg.check_interval_sec = bg_cfg.auto_train.check_interval_sec;
-        train_cfg.train_script = bg_cfg.auto_train.train_script;
-        train_cfg.model_output = bg_cfg.auto_train.model_output;
-        train_cfg.events_db = bg_cfg.auto_train.events_db;
-        train_cfg.docs_db = bg_cfg.auto_train.docs_db;
-        train_cfg.train_data_output = bg_cfg.auto_train.train_data_output;
-        train_cfg.dump_tool = bg_cfg.auto_train.dump_tool;
-        scheduler.SetAutoTrainConfig(train_cfg);
-
-        AutoIndexRebuildConfig rebuild_cfg;
-        rebuild_cfg.enable = bg_cfg.auto_index_rebuild.enable;
-        rebuild_cfg.interval_hours = bg_cfg.auto_index_rebuild.interval_hours;
-        rebuild_cfg.min_doc_changes = bg_cfg.auto_index_rebuild.min_doc_changes;
-        rebuild_cfg.check_interval_sec = bg_cfg.auto_index_rebuild.check_interval_sec;
-        scheduler.SetAutoIndexRebuildConfig(rebuild_cfg);
+    // ── 启动后台调度器（配置驱动）──
+    scheduler::Scheduler scheduler;
+    if (!scheduler.InitFromConfig(config_dir + "/framework.yaml")) {
+        LOG_WARN("Scheduler: config load failed, no background tasks");
     }
     scheduler.Start();
 

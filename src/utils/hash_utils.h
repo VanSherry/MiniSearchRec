@@ -34,7 +34,7 @@ uint64_t FNV1aHash64(const std::string& str);
 // CRC32 哈希
 uint32_t CRC32Hash(const std::string& str);
 
-// 简单哈希（用于教学）
+// 简单哈希（djb2 算法）
 uint32_t SimpleHash(const std::string& str);
 
 // 将哈希值映射到指定范围 [0, range-1]

@@ -1,0 +1,89 @@
+# ============================================================
+# MiniSearchRec - Search 垂搜业务配置
+# 一个业务一个文件，包含该业务 Pipeline 的全部 Processor 配置
+# ============================================================
+
+# ── 召回阶段 ──
+recall_stages:
+  - name: "InvertedRecallProcessor"
+    enable: true
+    max_recall: 1000
+    params:
+      min_term_freq: 1
+
+  - name: "UserHistoryRecallProcessor"
+    enable: true
+    max_recall: 200
+    params:
+      history_window_days: 30
+
+  - name: "HotContentRecallProcessor"
+    enable: true
+    max_recall: 100
+    params:
+      time_window_hours: 24
+      refresh_interval_sec: 300
+
+  - name: "VectorRecallProcessor"
+    enable: true
+    max_recall: 200
+    params:
+      top_k: 200
+      similarity_threshold: 0.3
+      embedding_dim: 64
+
+# ── 粗排阶段 ──
+coarse_rank_stages:
+  - name: "BM25ScorerProcessor"
+    weight: 0.6
+    params:
+      k1: 1.5
+      b: 0.75
+
+  - name: "QualityScorerProcessor"
+    weight: 0.2
+    params:
+      click_weight: 0.3
+      like_weight: 0.4
+      quality_weight: 0.3
+
+  - name: "FreshnessScorerProcessor"
+    weight: 0.2
+    params:
+      max_age_days: 365
+      decay_rate: 0.01
+
+# ── 精排阶段 ──
+fine_rank_stages:
+  - name: "LGBMScorerProcessor"
+    weight: 0.8
+    model_path: "./models/rank_model.txt"
+    params:
+      num_trees: 100
+
+# ── 过滤阶段 ──
+filter_stages:
+  - name: "DedupFilterProcessor"
+    params:
+      similarity_threshold: 0.9
+
+  - name: "QualityFilterProcessor"
+    params:
+      min_quality_score: 0.3
+      min_click_count: 0
+      min_content_length: 50
+
+  - name: "SpamFilterProcessor"
+    params:
+      spam_threshold: 0.8
+
+  - name: "BlacklistFilterProcessor"
+    params:
+      blacklist_file: "./config/blacklist.txt"
+
+# ── 后处理阶段 ──
+postprocess_stages:
+  - name: "MMRRerankProcessor"
+    params:
+      lambda: 0.7
+      top_k: 20

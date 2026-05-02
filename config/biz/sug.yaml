@@ -1,0 +1,22 @@
+# ============================================================
+# MiniSearchRec - Sug 搜索建议配置
+# 参考：通用搜索框架 SUGGESTER 业务
+# ============================================================
+
+sug:
+  max_results: 8
+  trie:
+    rebuild_interval_sec: 3600       # Trie 词库每小时重建
+    sources: [title, tag, user_query]
+    source_weights:
+      title: 1.0
+      tag: 0.8
+      user_query: 1.2
+  rank:
+    prefix_match_weight: 0.5
+    freq_weight: 0.3
+    freshness_weight: 0.2
+  filter:
+    min_len: 2
+    max_len: 20
+    dedup_edit_distance: 2

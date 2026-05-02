@@ -42,6 +42,28 @@ find_package(Threads REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(absl QUIET)
+
+# ONNX Runtime（可选：内置 embedding 模型推理）
+find_package(onnxruntime QUIET)
+if(onnxruntime_FOUND)
+    message(STATUS "ONNX Runtime found, enabling built-in embedding model")
+    add_definitions(-DHAVE_ONNXRUNTIME)
+else()
+    # 也支持手动指定路径
+    if(DEFINED ONNXRUNTIME_ROOT)
+        set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include")
+        set(ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so")
+        if(EXISTS "${ONNXRUNTIME_INCLUDE_DIRS}/onnxruntime_cxx_api.h")
+            message(STATUS "ONNX Runtime found at ${ONNXRUNTIME_ROOT}")
+            add_definitions(-DHAVE_ONNXRUNTIME)
+            include_directories(${ONNXRUNTIME_INCLUDE_DIRS})
+        else()
+            message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
+        endif()
+    else()
+        message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
+    endif()
+endif()
 find_package(spdlog QUIET)
 find_package(CppJieba QUIET)
 find_package(Faiss QUIET)
@@ -108,7 +130,7 @@ option(BUILD_TOOLS "Build tools" ON)
 # 头文件搜索路径
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ${CMAKE_CURRENT_SOURCE_DIR}/deps
     ${CMAKE_CURRENT_BINARY_DIR}/proto
 )
 
@@ -159,68 +181,73 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/proto)
 # 源码收集
 # ============================================================
 set(CORE_SRCS
-    src/core/session.cpp
-    src/core/pipeline.cpp
-    src/core/config_manager.cpp
-    src/core/factory.cpp
-    src/core/app_context.cpp
-    src/core/background_scheduler.cpp
+    src/framework/config/config_manager.cpp
+    src/framework/app_context.cpp
+    src/biz/search/search_session.cpp
 )
 
-# build_index 只需要核心基础（不含 factory，factory 依赖全部 processor）
-set(CORE_BASE_SRCS
-    src/core/session.cpp
-    src/core/config_manager.cpp
-    src/core/app_context.cpp
+set(SCHEDULER_SRCS
+    src/scheduler/scheduler.cpp
+    src/scheduler/task/auto_train_task.cpp
+    src/scheduler/task/index_rebuild_task.cpp
+    src/scheduler/task/trie_rebuild_task.cpp
 )
+
 
 set(RECALL_SRCS
-    src/recall/inverted_recall.cpp
-    src/recall/vector_recall.cpp
-    src/recall/user_history_recall.cpp
-    src/recall/hot_content_recall.cpp
-    src/recall/recall_fusion.cpp
+    src/lib/recall/inverted_recall.cpp
+    src/lib/recall/vector_recall.cpp
+    src/lib/recall/user_history_recall.cpp
+    src/lib/recall/hot_content_recall.cpp
+    src/lib/recall/recall_fusion.cpp
 )
 
 set(INDEX_SRCS
-    src/index/inverted_index.cpp
-    src/index/vector_index.cpp
-    src/index/doc_store.cpp
-    src/index/index_builder.cpp
+    src/lib/index/inverted_index.cpp
+    src/lib/index/vector_index.cpp
+    src/lib/index/doc_store.cpp
+    src/lib/index/index_builder.cpp
 )
 
 set(RANK_SRCS
-    src/rank/bm25_scorer.cpp
-    src/rank/quality_scorer.cpp
-    src/rank/freshness_scorer.cpp
-    src/rank/lgbm_ranker.cpp
-    src/rank/mmr_reranker.cpp
+    src/lib/rank/scorer/bm25_scorer.cpp
+    src/lib/rank/scorer/quality_scorer.cpp
+    src/lib/rank/scorer/freshness_scorer.cpp
+    src/lib/rank/scorer/lgbm_ranker.cpp
+    src/lib/rank/reranker/mmr_reranker.cpp
+    src/lib/rank/base/rank.cpp
+    src/lib/rank/base/rank_manager.cpp
 )
 
 set(FEATURE_SRCS
-    src/feature/feature_store.cpp
-    src/feature/query_features.cpp
-    src/feature/user_features.cpp
-    src/feature/doc_features.cpp
+    src/lib/feature/feature_store.cpp
+    src/lib/feature/query_features.cpp
+    src/lib/feature/user_features.cpp
+    src/lib/feature/doc_features.cpp
+)
+
+set(EMBEDDING_SRCS
+    src/lib/embedding/onnx_embedding_provider.cpp
+    src/lib/embedding/embedding_provider_factory.cpp
 )
 
 set(FILTER_SRCS
-    src/filter/dedup_filter.cpp
-    src/filter/quality_filter.cpp
-    src/filter/spam_filter.cpp
-    src/filter/blacklist_filter.cpp
+    src/lib/filter/dedup_filter.cpp
+    src/lib/filter/quality_filter.cpp
+    src/lib/filter/spam_filter.cpp
+    src/lib/filter/blacklist_filter.cpp
 )
 
 set(USER_SRCS
-    src/user/user_profile.cpp
-    src/user/user_event_handler.cpp
-    src/user/user_interest_updater.cpp
+    src/lib/user/user_profile.cpp
+    src/lib/user/user_event_handler.cpp
+    src/lib/user/user_interest_updater.cpp
 )
 
 set(QUERY_SRCS
-    src/query/query_parser.cpp
-    src/query/query_normalizer.cpp
-    src/query/query_expander.cpp
+    src/lib/query/query_parser.cpp
+    src/lib/query/query_normalizer.cpp
+    src/lib/query/query_expander.cpp
 )
 
 set(CACHE_SRCS
@@ -232,11 +259,39 @@ set(AB_SRCS
     src/ab/ab_test.cpp
 )
 
+set(FRAMEWORK_SRCS
+    src/framework/session/session.cpp
+    src/framework/session/session_factory.cpp
+    src/framework/handler/base_handler.cpp
+    src/framework/handler/handler_manager.cpp
+    src/framework/server/server.cpp
+    src/framework/processor/processor_pipeline.cpp
+)
+
 set(SERVICE_SRCS
-    src/service/http_server.cpp
-    src/service/search_handler.cpp
-    src/service/doc_handler.cpp
-    src/service/event_handler.cpp
+    src/gateway/http_server.cpp
+)
+
+set(STORAGE_SRCS
+    src/lib/storage/query_stats_store.cpp
+    src/lib/storage/doc_cooccur_store.cpp
+)
+
+set(BIZ_SRCS
+    src/biz/doc/doc_handler.cpp
+    src/biz/event/event_handler.cpp
+    src/biz/search/search_handler.cpp
+    src/biz/sug/sug_handler.cpp
+    src/biz/sug/sug_trie.cpp
+    src/biz/sug/sug_factory.cpp
+    src/biz/sug/processor/sug_relevance_processor.cpp
+    src/biz/sug/processor/sug_post_rank_processor.cpp
+    src/biz/hint/hint_handler.cpp
+    src/biz/hint/hint_factory.cpp
+    src/biz/hint/processor/hint_rank_processor.cpp
+    src/biz/nav/nav_handler.cpp
+    src/biz/nav/nav_factory.cpp
+    src/biz/nav/processor/nav_score_processor.cpp
 )
 
 set(UTILS_SRCS
@@ -253,16 +308,21 @@ set(MAIN_SRC src/main.cpp)
 set(ALL_SRCS
     ${MAIN_SRC}
     ${CORE_SRCS}
+    ${SCHEDULER_SRCS}
     ${RECALL_SRCS}
     ${INDEX_SRCS}
     ${RANK_SRCS}
     ${FEATURE_SRCS}
+    ${EMBEDDING_SRCS}
     ${FILTER_SRCS}
     ${USER_SRCS}
     ${QUERY_SRCS}
     ${CACHE_SRCS}
     ${AB_SRCS}
+    ${FRAMEWORK_SRCS}
     ${SERVICE_SRCS}
+    ${STORAGE_SRCS}
+    ${BIZ_SRCS}
     ${UTILS_SRCS}
     ${PROTO_SRCS}
 )
@@ -296,56 +356,30 @@ if(APPLE)
 endif()
 
 # ============================================================
-# 工具
-# ============================================================
-if(BUILD_TOOLS)
-    add_executable(build_index tools/build_index.cpp ${INDEX_SRCS} ${CORE_BASE_SRCS} ${AB_SRCS} ${UTILS_SRCS} ${PROTO_SRCS})
-    target_link_libraries(build_index
-        PRIVATE
-        Threads::Threads
-        protobuf::libprotobuf
-        yaml-cpp::yaml-cpp
-        jsoncpp
-        sqlite3
-        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
-        $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog_header_only>
-    )
-    if(APPLE)
-        target_link_directories(build_index PRIVATE "${HOMEBREW_PREFIX}/opt/abseil/lib")
-        file(GLOB ABSL_LIBS_TOOL "${HOMEBREW_PREFIX}/opt/abseil/lib/libabsl_*.dylib")
-        target_link_libraries(build_index PRIVATE ${ABSL_LIBS_TOOL})
-    endif()
-
-    # 离线样本导出工具（训练闭环）
-    add_executable(dump_train_data tools/dump_train_data.cpp)
-    target_link_libraries(dump_train_data PRIVATE sqlite3)
-    if(APPLE)
-        target_link_directories(dump_train_data PRIVATE "${HOMEBREW_PREFIX}/opt/jsoncpp/lib")
-    endif()
-    message(STATUS "dump_train_data tool configured")
-endif()
-
-# ============================================================
 # 测试
 # ============================================================
 if(BUILD_TESTS)
     enable_testing()
 
-    # ── 独立集成测试（不依赖 GTest）──
-    # 覆盖 v1.1/v1.2 全部修复点
+    # ── v2.0 完整集成测试（不依赖 GTest）──
     set(TEST_ALL_SRCS
         tests/test_all.cpp
         ${CORE_SRCS}
+        ${SCHEDULER_SRCS}
         ${RECALL_SRCS}
         ${INDEX_SRCS}
         ${RANK_SRCS}
         ${FEATURE_SRCS}
+        ${EMBEDDING_SRCS}
         ${FILTER_SRCS}
         ${USER_SRCS}
         ${QUERY_SRCS}
         ${CACHE_SRCS}
         ${AB_SRCS}
         ${SERVICE_SRCS}
+        ${STORAGE_SRCS}
+        ${BIZ_SRCS}
+        ${FRAMEWORK_SRCS}
         ${UTILS_SRCS}
         ${PROTO_SRCS}
     )
@@ -367,22 +401,7 @@ if(BUILD_TESTS)
         target_link_libraries(test_all PRIVATE ${ABSL_LIBS_TEST})
     endif()
     add_test(NAME IntegrationTests COMMAND test_all)
-    message(STATUS "Integration test (test_all) configured")
-
-    # ── GTest 单元测试（可选）──
-    find_package(GTest QUIET)
-    if(GTest_FOUND)
-        set(TEST_SRCS
-            tests/test_inverted_index.cpp
-        )
-        add_executable(test_minisearchrec ${TEST_SRCS} ${ALL_SRCS})
-        target_link_libraries(test_minisearchrec
-            PRIVATE GTest::gtest GTest::gtest_main
-            Threads::Threads protobuf::libprotobuf yaml-cpp::yaml-cpp jsoncpp)
-        add_test(NAME UnitTests COMMAND test_minisearchrec)
-    else()
-        message(STATUS "GTest not found, skipping unit tests (test_all still available)")
-    endif()
+    message(STATUS "Integration test (test_all) configured - v2.0")
 endif()
 
 # ============================================================

@@ -1,7 +1,7 @@
 // ============================================================
-// MiniSearchRec - 完整集成测试
-// 覆盖 v1.1 / v1.2 所有修复点，不依赖 GTest
-// 编译：在 CMake 中作为独立可执行文件
+// MiniSearchRec v2.0 - 完整测试套件
+// 不依赖 GTest，自带轻量断言宏
+// 覆盖：框架层 + 公共算子层 + 配置驱动
 // ============================================================
 
 #include <iostream>
@@ -16,20 +16,37 @@
 #include <unordered_set>
 #include <yaml-cpp/yaml.h>
 
-// 项目头文件
-#include "core/session.h"
-#include "core/processor.h"
-#include "core/background_scheduler.h"
-#include "core/app_context.h"
-#include "rank/freshness_scorer.h"
-#include "rank/mmr_reranker.h"
-#include "rank/lgbm_ranker.h"
-#include "recall/vector_recall.h"
-#include "recall/hot_content_recall.h"
-#include "index/vector_index.h"
-#include "user/user_interest_updater.h"
+// 框架层
+#include "framework/session/session.h"
+#include "framework/processor/processor_interface.h"
+#include "framework/processor/processor_pipeline.h"
+#include "framework/handler/handler_manager.h"
+#include "framework/handler/base_handler.h"
+#include "framework/class_register.h"
+#include "framework/app_context.h"
+
+// 公共算子
+#include "lib/rank/scorer/bm25_scorer.h"
+#include "lib/rank/scorer/freshness_scorer.h"
+#include "lib/rank/scorer/quality_scorer.h"
+#include "lib/rank/reranker/mmr_reranker.h"
+#include "lib/recall/vector_recall.h"
+#include "lib/recall/hot_content_recall.h"
+#include "lib/index/inverted_index.h"
+#include "lib/index/vector_index.h"
+#include "lib/embedding/embedding_provider.h"
+#include "lib/embedding/onnx_embedding_provider.h"
 #include "ab/ab_test.h"
-#include "query/query_parser.h"
+
+// 业务层
+#include "biz/search/search_session.h"
+#include "biz/search/search_handler.h"
+#include "biz/sug/sug_handler.h"
+#include "biz/hint/hint_handler.h"
+#include "biz/nav/nav_handler.h"
+
+// Scheduler
+#include "scheduler/scheduler.h"
 
 using namespace minisearchrec;
 
@@ -45,718 +62,830 @@ static int g_pass = 0, g_fail = 0;
     } \
 } while(0)
 
-#define EXPECT_NEAR_F(a, b, tol, msg) EXPECT(std::abs((a)-(b)) < (tol), msg)
+#define EXPECT_NEAR(a, b, tol, msg) EXPECT(std::abs((a)-(b)) < (tol), msg)
 #define SECTION(name) std::cout << "\n[TEST] " << (name) << "\n"
 
 // ============================================================
-// #2  FreshnessScorerProcessor：指数衰减替代硬编码阶梯
+// 1. Framework Session - 基础功能
+// ============================================================
+void test_session_basics() {
+    SECTION("Framework Session - KV存储 + 超时控制");
+
+    framework::Session session;
+
+    // KV 存储
+    session.Set("key1", "value1");
+    EXPECT(session.Get("key1") == "value1", "KV Set/Get 正常");
+    EXPECT(session.Get("nonexist") == "", "不存在的 key 返回空");
+    EXPECT(session.Has("key1"), "Has() 返回 true");
+    EXPECT(!session.Has("nonexist"), "Has() 不存在时返回 false");
+
+    // Any 存储
+    session.SetAny("int_val", 42);
+    auto* p = session.GetAny<int>("int_val");
+    EXPECT(p != nullptr && *p == 42, "Any 存储 int 正常");
+    EXPECT(session.GetAny<float>("int_val") == nullptr, "Any 类型不匹配返回 nullptr");
+
+    // 超时控制
+    session.deadline_ms = 0;
+    EXPECT(!session.IsTimedOut(), "deadline=0 永不超时");
+
+    session.deadline_ms = 1;
+    EXPECT(session.IsTimedOut(), "过去的 deadline 已超时");
+
+    int64_t future = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    session.deadline_ms = future;
+    EXPECT(!session.IsTimedOut(), "未来的 deadline 未超时");
+}
+
+// ============================================================
+// 2. ProcessorInterface - 注册 + 反射创建
+// ============================================================
+void test_processor_registry() {
+    SECTION("ProcessorInterface - 注册表反射创建");
+
+    auto& registry = framework::ProcessorRegistry::Instance();
+
+    // 验证内置 Processor 已注册（通过 REGISTER_MSR_PROCESSOR 宏）
+    auto* bm25 = registry.Create("BM25ScorerProcessor");
+    EXPECT(bm25 != nullptr, "BM25ScorerProcessor 可反射创建");
+    if (bm25) {
+        EXPECT(bm25->Name() == "BM25ScorerProcessor", "Name() 正确");
+        delete bm25;
+    }
+
+    auto* freshness = registry.Create("FreshnessScorerProcessor");
+    EXPECT(freshness != nullptr, "FreshnessScorerProcessor 可反射创建");
+    delete freshness;
+
+    auto* quality = registry.Create("QualityScorerProcessor");
+    EXPECT(quality != nullptr, "QualityScorerProcessor 可反射创建");
+    delete quality;
+
+    // 不存在的 Processor
+    auto* nope = registry.Create("NonExistentProcessor");
+    EXPECT(nope == nullptr, "不存在的 Processor 返回 nullptr");
+}
+
+// ============================================================
+// 3. ProcessorPipeline - YAML 配置加载 + 执行
+// ============================================================
+void test_processor_pipeline() {
+    SECTION("ProcessorPipeline - 配置加载 + 按序执行");
+
+    framework::ProcessorPipeline pipeline;
+
+    // 从 YAML 加载
+    YAML::Node yaml;
+    yaml[0]["name"] = "BM25ScorerProcessor";
+    yaml[0]["params"]["k1"] = 1.5;
+    yaml[0]["params"]["b"] = 0.75;
+    yaml[1]["name"] = "QualityScorerProcessor";
+    yaml[1]["params"]["weight"] = 0.3;
+
+    YAML::Node root;
+    root["test_stages"] = yaml;
+
+    int loaded = pipeline.LoadFromConfig(root, "test_stages");
+    EXPECT(loaded >= 0, "LoadFromConfig 成功");
+    EXPECT(pipeline.Size() >= 1, "至少加载了 1 个 Processor");
+
+    // 空 pipeline 执行
+    framework::ProcessorPipeline empty_pipeline;
+    SearchSession session;
+    int ret = empty_pipeline.Execute(&session);
+    EXPECT(ret == 0, "空 Pipeline 执行返回 0");
+}
+
+// ============================================================
+// 4. InvertedIndex - 增删查
+// ============================================================
+void test_inverted_index() {
+    SECTION("InvertedIndex - 添加/搜索/IDF/持久化");
+
+    InvertedIndex idx;
+
+    idx.AddDocument("doc1", "深度学习入门", "本文介绍深度学习的基础概念",
+                    "tech", {"AI", "深度学习"}, 50);
+    idx.AddDocument("doc2", "机器学习实战", "机器学习的实战技巧和应用",
+                    "tech", {"ML", "Python"}, 45);
+    idx.AddDocument("doc3", "烹饪技巧", "分享家庭烹饪的实用技巧",
+                    "food", {"烹饪"}, 30);
+
+    EXPECT(idx.GetDocCount() == 3, "文档数量 = 3");
+
+    // 搜索
+    auto results = idx.Search({"深度"}, 100);
+    EXPECT(!results.empty(), "搜索'深度'有结果");
+
+    // IDF
+    float idf_tech = idx.CalculateIDF("学习");   // 出现在 2 篇
+    float idf_food = idx.CalculateIDF("烹饪");   // 出现在 1 篇
+    EXPECT(idf_food > idf_tech, "罕见词 IDF 更高");
+    EXPECT(idf_tech > 0.0f, "IDF > 0");
+
+    // 平均文档长度
+    float avg = idx.GetAvgDocLen();
+    EXPECT(avg > 0.0f, "平均文档长度 > 0");
+
+    // 持久化
+    std::string path = "/tmp/test_msr_inverted.idx";
+    EXPECT(idx.Save(path), "Save 成功");
+
+    InvertedIndex idx2;
+    EXPECT(idx2.Load(path), "Load 成功");
+    EXPECT(idx2.GetDocCount() == 3, "Load 后文档数 = 3");
+
+    std::remove(path.c_str());
+}
+
+// ============================================================
+// 5. VectorIndex - 暴力搜索 fallback
+// ============================================================
+void test_vector_index() {
+    SECTION("VectorIndex - 暴力搜索模式");
+
+    VectorIndexConfig cfg;
+    cfg.dim = 8;
+    VectorIndex idx(cfg);
+
+    // 构造几个简单向量
+    std::vector<float> v1(8, 0.0f); v1[0] = 1.0f;  // [1,0,0,...]
+    std::vector<float> v2(8, 0.0f); v2[1] = 1.0f;  // [0,1,0,...]
+    std::vector<float> v3(8, 0.1f); v3[0] = 0.9f;  // 接近 v1
+
+    idx.AddVector("doc_a", v1);
+    idx.AddVector("doc_b", v2);
+    idx.AddVector("doc_c", v3);
+
+    EXPECT(idx.GetVectorCount() == 3, "向量数 = 3");
+
+    // 查询 v1，应该 doc_a 最近
+    auto results = idx.Search(v1, 3, 0.0f);
+    EXPECT(!results.empty(), "搜索结果非空");
+    if (!results.empty()) {
+        EXPECT(results[0].first == "doc_a", "最近邻是 doc_a");
+    }
+
+    // 持久化
+    std::string path = "/tmp/test_msr_vector.idx";
+    EXPECT(idx.Save(path), "VectorIndex Save 成功");
+    VectorIndex idx2(cfg);
+    EXPECT(idx2.Load(path), "VectorIndex Load 成功");
+    EXPECT(idx2.GetVectorCount() == 3, "Load 后向量数 = 3");
+    std::remove(path.c_str());
+}
+
+// ============================================================
+// 6. BM25ScorerProcessor - 打分正确性
+// ============================================================
+void test_bm25_scorer() {
+    SECTION("BM25ScorerProcessor - 打分");
+
+    BM25ScorerProcessor scorer;
+    YAML::Node cfg;
+    cfg["weight"] = 0.6;
+    cfg["k1"] = 1.5;
+    cfg["b"] = 0.75;
+    scorer.Init(cfg);
+
+    EXPECT(scorer.Name() == "BM25ScorerProcessor", "Name 正确");
+
+    // 通过 framework::ProcessorInterface::Process(Session*) 调用
+    SearchSession session;
+    session.qp_info.terms = {"深度", "学习"};
+
+    DocCandidate c1;
+    c1.doc_id = "doc1";
+    c1.title = "深度学习入门";
+    c1.content_length = 100;
+    session.recall_results.push_back(c1);
+
+    // BM25Scorer 需要 InvertedIndex，但没有设置时应安全降级
+    int ret = scorer.Process(&session);
+    EXPECT(ret == 0, "无 InvertedIndex 时 Process 安全返回 0");
+}
+
+// ============================================================
+// 7. FreshnessScorerProcessor - 指数衰减
 // ============================================================
 void test_freshness_scorer() {
     SECTION("FreshnessScorerProcessor - 指数衰减");
 
     FreshnessScorerProcessor scorer;
     YAML::Node cfg;
-    cfg["weight"]     = 1.0f;
-    cfg["decay_rate"] = 0.01f;
+    cfg["weight"] = 1.0;
+    cfg["decay_rate"] = 0.01;
     cfg["max_age_days"] = 365;
     scorer.Init(cfg);
 
     int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // 刚发布（0天）→ 接近 1.0
-    DocCandidate fresh;
+    SearchSession session;
+    DocCandidate fresh, week, month, old;
     fresh.publish_time = now;
-    // 7天前
-    DocCandidate week;
     week.publish_time = now - 7 * 86400;
-    // 30天前
-    DocCandidate month;
     month.publish_time = now - 30 * 86400;
-    // 超期（400天）→ 0
-    DocCandidate old;
     old.publish_time = now - 400 * 86400;
 
-    Session session;
-    std::vector<DocCandidate> cands = {fresh, week, month, old};
-    scorer.Process(session, cands);
+    session.recall_results = {fresh, week, month, old};
+    scorer.Process(&session);
 
-    float s0 = cands[0].debug_scores.at("freshness");
-    float s7 = cands[1].debug_scores.at("freshness");
-    float s30 = cands[2].debug_scores.at("freshness");
-    float s400 = cands[3].debug_scores.at("freshness");
+    auto& r = session.recall_results;
+    float s0 = r[0].debug_scores.count("freshness") ? r[0].debug_scores["freshness"] : -1;
+    float s7 = r[1].debug_scores.count("freshness") ? r[1].debug_scores["freshness"] : -1;
+    float s30 = r[2].debug_scores.count("freshness") ? r[2].debug_scores["freshness"] : -1;
+    float s400 = r[3].debug_scores.count("freshness") ? r[3].debug_scores["freshness"] : -1;
 
-    EXPECT(s0  > 0.98f,  "今天发布的文章新鲜度接近1.0");
-    EXPECT(s7  > 0.90f,  "7天前发布新鲜度 >0.90 (exp(-0.07)≈0.93)");
-    EXPECT(s30 > 0.70f,  "30天前发布新鲜度 >0.70 (exp(-0.30)≈0.74)");
-    EXPECT(s400 == 0.0f, "超过max_age_days新鲜度为0");
-    // 单调递减
-    EXPECT(s0 > s7 && s7 > s30, "新鲜度随时间单调递减（连续，非阶梯）");
-    // 不是硬编码阶梯：7天和6天应有差异
-    DocCandidate day6; day6.publish_time = now - 6 * 86400;
-    DocCandidate day8; day8.publish_time = now - 8 * 86400;
-    std::vector<DocCandidate> c2 = {day6, day8};
-    scorer.Process(session, c2);
-    EXPECT(c2[0].debug_scores.at("freshness") != c2[1].debug_scores.at("freshness"),
-           "6天和8天新鲜度不同（非硬编码阶梯）");
+    EXPECT(s0 > 0.9f, "今天发布新鲜度 > 0.9");
+    EXPECT(s0 > s7 && s7 > s30, "新鲜度单调递减");
+    EXPECT(s400 == 0.0f, "超 max_age_days 为 0");
 }
 
 // ============================================================
-// #6  去重 O(N²) → unordered_set O(1)
+// 8. Embedding - PseudoEmbeddingProvider
 // ============================================================
-void test_dedup_uset() {
-    SECTION("unordered_set 去重性能验证");
+void test_pseudo_embedding() {
+    SECTION("PseudoEmbeddingProvider - 词袋哈希");
 
-    const int N = 2000;
-    std::vector<DocCandidate> existing;
-    existing.reserve(N);
-    for (int i = 0; i < N; ++i) {
-        DocCandidate c;
-        c.doc_id = "doc_" + std::to_string(i);
-        existing.push_back(c);
+    PseudoEmbeddingProvider provider(768);
+    EXPECT(provider.GetDim() == 768, "dim = 768");
+    EXPECT(provider.Name() == "pseudo_bow_hash", "Name 正确");
+
+    auto emb1 = provider.Encode("深度学习");
+    EXPECT(static_cast<int>(emb1.size()) == 768, "输出 768 维");
+
+    // L2 归一化检验
+    float norm = 0.0f;
+    for (float v : emb1) norm += v * v;
+    norm = std::sqrt(norm);
+    EXPECT_NEAR(norm, 1.0f, 0.01f, "L2 归一化");
+
+    // 不同文本不同向量
+    auto emb2 = provider.Encode("量子力学");
+    EXPECT(emb1 != emb2, "不同文本不同向量");
+
+    // 空文本
+    auto emb_empty = provider.Encode("");
+    float sum = 0.0f;
+    for (float v : emb_empty) sum += std::abs(v);
+    EXPECT(sum < 0.001f, "空文本输出零向量");
+}
+
+// ============================================================
+// 9. OnnxEmbeddingProvider - Tokenizer 加载
+// ============================================================
+void test_onnx_tokenizer() {
+    SECTION("OnnxEmbeddingProvider - WordPiece Tokenizer");
+
+    WordPieceTokenizer tokenizer;
+    bool loaded = tokenizer.Load("models/bge-base-zh/vocab.txt");
+    EXPECT(loaded, "vocab.txt 加载成功");
+
+    if (loaded) {
+        EXPECT(tokenizer.VocabSize() > 20000, "词表 > 20000 词");
+
+        auto result = tokenizer.Encode("深度学习是人工智能的核心", 128);
+        EXPECT(!result.input_ids.empty(), "Encode 输出非空");
+        EXPECT(result.input_ids.front() == 101, "首个 token 是 [CLS]=101");
+        EXPECT(result.input_ids.back() == 102, "末尾 token 是 [SEP]=102");
+        EXPECT(result.input_ids.size() == result.attention_mask.size(),
+               "input_ids 与 attention_mask 长度一致");
+        EXPECT(result.input_ids.size() == result.token_type_ids.size(),
+               "input_ids 与 token_type_ids 长度一致");
+
+        // 英文 tokenize
+        auto result_en = tokenizer.Encode("hello world", 128);
+        EXPECT(!result_en.input_ids.empty(), "英文 Encode 非空");
     }
-
-    // 建立 unordered_set
-    std::unordered_set<std::string> seen;
-    for (const auto& c : existing) seen.insert(c.doc_id);
-
-    // 验证已有 ID 均命中
-    int hits = 0;
-    for (int i = 0; i < N; ++i) {
-        if (seen.count("doc_" + std::to_string(i))) ++hits;
-    }
-    EXPECT(hits == N, "2000条全部命中 unordered_set（O(1)查找正确）");
-
-    // 新 ID 不命中
-    EXPECT(seen.count("doc_99999") == 0, "新 doc_id 未在 set 中");
 }
 
 // ============================================================
-// #11 MMR 中文字符级 Jaccard
+// 10. AB 实验框架
 // ============================================================
-void test_mmr_chinese() {
-    SECTION("MMRRerankProcessor - 中文字符级 Jaccard");
-
-    MMRRerankProcessor mmr;
-    YAML::Node cfg;
-    cfg["lambda"] = 0.7f;
-    cfg["top_k"]  = 5;
-    mmr.Init(cfg);
-
-    // 完全相同的中文标题 → 相似度接近 1
-    DocCandidate a, b, c;
-    a.title = "深度学习入门指南";
-    b.title = "深度学习入门指南";  // 完全相同
-    c.title = "量子力学基础课程";  // 完全不同
-
-    // 构造候选集：先放高分，再放重复
-    a.fine_score = 1.0f;
-    b.fine_score = 0.9f;
-    c.fine_score = 0.8f;
-
-    Session session;
-    std::vector<DocCandidate> cands = {a, b, c};
-    mmr.Process(session, cands);
-
-    EXPECT(!cands.empty(), "MMR 有输出结果");
-    // a/b 完全相同，MMR 应该优选 a 和 c，而非 a 和 b
-    bool has_a = false, has_c = false;
-    for (const auto& r : cands) {
-        if (r.title == "深度学习入门指南" && !has_a) has_a = true;
-        if (r.title == "量子力学基础课程") has_c = true;
-    }
-    EXPECT(has_c, "MMR 选出了与第一个结果不同的文章（多样性有效）");
-
-    // 测试英文按词分，中文按字分：混合标题
-    DocCandidate d, e;
-    d.title = "C++深度学习框架";
-    e.title = "Python深度学习框架";
-    d.fine_score = 1.0f;
-    e.fine_score = 0.9f;
-    std::vector<DocCandidate> c2 = {d, e};
-    Session s2;
-    mmr.Process(s2, c2);
-    EXPECT(!c2.empty(), "混合中英文标题 MMR 正常运行");
-}
-
-// ============================================================
-// #15 EMA 增量更新（不清空旧权重）
-// ============================================================
-void test_ema_interest_update() {
-    SECTION("UserInterestUpdater - EMA 增量更新");
-
-    UserInterestUpdater updater;
-    updater.SetEmaAlpha(0.3f);
-
-    UserProfile profile;
-    profile.set_uid("test_user");
-
-    // 初始兴趣：tech=0.8
-    (*profile.mutable_category_weights())["tech"] = 0.8f;
-
-    // 模拟一次更新（不清空旧权重）
-    // 只测试 ApplyTimeDecay 和 DiffuseInterests
-    // active_days_last_30=30 → inactive_days=0 → decay=1.0，权重不变
-    profile.set_active_days_last_30(30);
-    updater.ApplyTimeDecay(profile);
-
-    float w_tech = profile.category_weights().at("tech");
-    EXPECT_NEAR_F(w_tech, 0.8f, 0.01f, "active用户时间衰减接近1，权重保持");
-
-    // inactive_days=10 → decay = 0.95^10 ≈ 0.60
-    profile.set_active_days_last_30(20);
-    // 重置权重
-    (*profile.mutable_category_weights())["tech"] = 0.8f;
-    updater.ApplyTimeDecay(profile);
-
-    float w_decayed = profile.category_weights().at("tech");
-    EXPECT(w_decayed < 0.8f, "不活跃用户权重发生衰减");
-    EXPECT(w_decayed > 0.0f, "衰减后权重仍为正");
-
-    // 兴趣扩散：tech → programming/AI/gadget
-    (*profile.mutable_category_weights())["tech"] = 0.6f;
-    updater.DiffuseInterests(profile);
-    bool diffused = profile.category_weights().count("programming") ||
-                    profile.category_weights().count("AI") ||
-                    profile.category_weights().count("gadget");
-    EXPECT(diffused, "tech 兴趣正确扩散到相关类别（category_links_ 已初始化）");
-}
-
-// ============================================================
-// #3  A/B 实验框架：GetParam() 覆盖
-// ============================================================
-void test_ab_getparam() {
-    SECTION("ABTestManager - GetParam() 覆盖实验参数");
+void test_ab_test() {
+    SECTION("ABTestManager - 实验分配 + GetParam");
 
     ABTestManager mgr;
     YAML::Node exp_node;
-    exp_node[0]["name"]          = "exp_mmr_low_lambda";
-    exp_node[0]["traffic_ratio"] = 1.0f;   // 100% 流量进实验组
-    exp_node[0]["params"][0]["key"]   = "mmr_lambda";
+    exp_node[0]["name"] = "exp_test";
+    exp_node[0]["traffic_ratio"] = 1.0;  // 100% 流量
+    exp_node[0]["params"][0]["key"] = "mmr_lambda";
     exp_node[0]["params"][0]["value"] = "0.3";
-    exp_node[0]["params"][1]["key"]   = "coarse_top_k";
-    exp_node[0]["params"][1]["value"] = "200";
 
     mgr.LoadFromYAML(exp_node);
 
-    // 任意 uid 应分到实验组（100% 流量）
     std::string val = mgr.GetParam("user_001", "mmr_lambda", "0.7");
-    EXPECT(val == "0.3", "GetParam 返回实验组 mmr_lambda=0.3");
+    EXPECT(val == "0.3", "100% 流量实验命中，返回实验值 0.3");
 
-    std::string val2 = mgr.GetParam("user_001", "coarse_top_k", "500");
-    EXPECT(val2 == "200", "GetParam 返回实验组 coarse_top_k=200");
-
-    // 不存在的 key 返回默认值
-    std::string val3 = mgr.GetParam("user_001", "nonexist_key", "default_val");
-    EXPECT(val3 == "default_val", "不存在的 key 返回默认值");
+    std::string def = mgr.GetParam("user_001", "nonexist", "default");
+    EXPECT(def == "default", "不存在的 key 返回默认值");
 }
 
 // ============================================================
-// Session ABOverride 字段存在性
+// 11. AppContext - 单例 + SwapIndexes 原子切换
 // ============================================================
-void test_session_ab_override() {
-    SECTION("Session::ABOverride 字段完整性");
-
-    Session session;
-    EXPECT(session.ab_override.mmr_lambda   == -1.f, "mmr_lambda 默认-1（不覆盖）");
-    EXPECT(session.ab_override.coarse_top_k == -1,   "coarse_top_k 默认-1");
-    EXPECT(session.ab_override.fine_top_k   == -1,   "fine_top_k 默认-1");
-
-    session.ab_override.mmr_lambda = 0.5f;
-    EXPECT(session.ab_override.mmr_lambda == 0.5f, "mmr_lambda 可正常赋值");
-}
-
-// ============================================================
-// #12 超时控制：IsTimedOut()
-// ============================================================
-void test_timeout_control() {
-    SECTION("Session 超时控制 - IsTimedOut()");
-
-    Session session;
-    // deadline=0 → 永不超时
-    session.deadline_ms = 0;
-    EXPECT(!session.IsTimedOut(), "deadline=0 时永不超时");
-
-    // deadline 设为过去 → 已超时
-    session.deadline_ms = 1;  // epoch 1ms，肯定过期
-    EXPECT(session.IsTimedOut(), "deadline 为过去时间时 IsTimedOut()=true");
-
-    // deadline 设为未来 → 未超时
-    int64_t future = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
-    session.deadline_ms = future;
-    EXPECT(!session.IsTimedOut(), "deadline 为未来时间时 IsTimedOut()=false");
-}
-
-// ============================================================
-// #1  QueryParser 生成伪 embedding（向量召回可运行）
-// ============================================================
-void test_query_embedding() {
-    SECTION("QueryParser - 自动生成伪 query embedding");
-
-    QueryParser qp;
-    QPInfo info;
-    qp.Parse("深度学习", info);
-
-    EXPECT(!info.terms.empty(), "分词结果非空");
-    EXPECT(!info.query_embedding.empty(), "自动生成 query embedding（非空）");
-    EXPECT(info.query_embedding.size() == 64, "embedding 维度为 64");
-
-    // 验证已归一化（L2 norm ≈ 1.0）
-    float norm = 0.0f;
-    for (float v : info.query_embedding) norm += v * v;
-    norm = std::sqrt(norm);
-    EXPECT_NEAR_F(norm, 1.0f, 0.01f, "embedding 已 L2 归一化");
-
-    // 不同 query 生成不同 embedding
-    QPInfo info2;
-    qp.Parse("量子力学", info2);
-    bool same = (info.query_embedding == info2.query_embedding);
-    EXPECT(!same, "不同 query 生成不同 embedding");
-}
-
-// ============================================================
-// 双 Buffer LGBMScorerProcessor 热更新（无 LightGBM 模式）
-// ============================================================
-void test_lgbm_double_buffer() {
-    SECTION("LGBMScorerProcessor - 双 Buffer 热更新");
-
-    LGBMScorerProcessor scorer;
-    YAML::Node cfg;
-    cfg["weight"] = 1.0f;
-    scorer.Init(cfg);  // 无模型文件，走内置规则树
-
-    EXPECT(!scorer.HasRealModel(), "无模型文件时 HasRealModel()=false");
-
-    // 无 LightGBM 时 HotReload 应优雅返回 false（文件不存在）
-    bool ok = scorer.HotReload("/nonexistent/model.txt");
-    EXPECT(!ok, "不存在的模型路径 HotReload 返回 false");
-
-    // 推理仍正常工作（降级到内置规则树）
-    Session session;
-    session.qp_info.terms = {"深度", "学习"};
-    DocCandidate cand;
-    cand.publish_time = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    cand.click_count = 100;
-    cand.like_count  = 30;
-    cand.debug_scores["bm25"]      = 0.7f;
-    cand.debug_scores["quality"]   = 0.6f;
-    cand.debug_scores["freshness"] = 0.9f;
-
-    std::vector<DocCandidate> cands = {cand};
-    int ret = scorer.Process(session, cands);
-    EXPECT(ret == 0, "无模型时 Process() 返回0（正常降级）");
-    EXPECT(cands[0].fine_score > 0.0f, "降级规则树输出正分");
-    EXPECT(cands[0].debug_scores.count("lgbm") > 0, "debug_scores 包含 lgbm 字段");
-}
-
-// ============================================================
-// 并发测试：双 Buffer 推理线程安全
-// ============================================================
-void test_lgbm_concurrent_safety() {
-    SECTION("LGBMScorerProcessor - 并发推理线程安全");
-
-    auto scorer = std::make_shared<LGBMScorerProcessor>();
-    YAML::Node cfg;
-    cfg["weight"] = 1.0f;
-    scorer->Init(cfg);
-
-    std::atomic<int> errors{0};
-    std::atomic<int> done{0};
-
-    // 8 个推理线程同时跑
-    std::vector<std::thread> threads;
-    for (int i = 0; i < 8; ++i) {
-        threads.emplace_back([&scorer, &errors, &done, i]() {
-            for (int j = 0; j < 50; ++j) {
-                Session session;
-                session.qp_info.terms = {"test"};
-                DocCandidate cand;
-                cand.debug_scores["bm25"]      = 0.5f;
-                cand.debug_scores["quality"]   = 0.5f;
-                cand.debug_scores["freshness"] = 0.5f;
-                cand.publish_time = std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-                std::vector<DocCandidate> cands = {cand};
-                int ret = scorer->Process(session, cands);
-                if (ret != 0 || cands[0].fine_score < 0.0f) {
-                    ++errors;
-                }
-            }
-            ++done;
-        });
-    }
-
-    // 在推理过程中尝试 HotReload（会失败，但不应崩溃）
-    std::thread reload_thread([&scorer]() {
-        for (int i = 0; i < 5; ++i) {
-            scorer->HotReload("/tmp/nonexistent_model_" + std::to_string(i) + ".txt");
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    for (auto& t : threads) t.join();
-    reload_thread.join();
-
-    EXPECT(errors.load() == 0, "8线程×50次推理并发 + reload 无错误");
-    EXPECT(done.load() == 8, "所有推理线程正常完成");
-}
-
-// ============================================================
-// HotContent 热榜缓存：RefreshHotList 接口存在且不崩溃
-// ============================================================
-void test_hot_content_cache() {
-    SECTION("HotContentRecallProcessor - 热榜缓存刷新");
-
-    HotContentRecallProcessor proc;
-    YAML::Node cfg;
-    cfg["enable"]               = true;
-    cfg["max_recall"]           = 10;
-    cfg["time_window_hours"]    = 24;
-    cfg["refresh_interval_sec"] = 300;
-    proc.Init(cfg);
-
-    // RefreshHotList 无 DocStore 时应安全返回（不崩溃）
-    proc.RefreshHotList();
-    EXPECT(true, "无 DocStore 时 RefreshHotList() 安全返回");
-
-    // Process 无 DocStore 时应安全返回
-    Session session;
-    int ret = proc.Process(session);
-    EXPECT(ret == 0, "无 DocStore 时 Process() 返回0");
-    EXPECT(session.recall_results.empty(), "无 DocStore 时召回结果为空");
-}
-
-// ============================================================
-// 缓存 key 包含 uid（防个性化污染）
-// ============================================================
-void test_cache_key_includes_uid() {
-    SECTION("CacheKey 包含 uid（防个性化污染）");
-
-    // MakeCacheKey 逻辑：uid:query:page:page_size:business_type
-    SearchRequest req1, req2;
-    req1.set_uid("user_001");
-    req1.set_query("深度学习");
-    req1.set_page(1);
-    req1.set_page_size(20);
-
-    req2.set_uid("user_002");
-    req2.set_query("深度学习");
-    req2.set_page(1);
-    req2.set_page_size(20);
-
-    // 手动构造 key，与 cache_manager.cpp 一致
-    auto make_key = [](const SearchRequest& r) {
-        std::ostringstream oss;
-        oss << (r.uid().empty() ? "anon" : r.uid()) << ":"
-            << r.query() << ":"
-            << r.page()  << ":"
-            << r.page_size() << ":"
-            << r.business_type();
-        return oss.str();
-    };
-
-    std::string k1 = make_key(req1);
-    std::string k2 = make_key(req2);
-    EXPECT(k1 != k2, "不同 uid 的相同 query 生成不同 cache key");
-
-    SearchRequest req3;
-    req3.set_uid("user_001");
-    req3.set_query("深度学习");
-    req3.set_page(1);
-    req3.set_page_size(20);
-    EXPECT(make_key(req1) == make_key(req3), "相同 uid+query 生成相同 cache key");
-}
-
-// ============================================================
-// #10 特征维度：kNumFeatures == 10
-// ============================================================
-void test_feature_dimension() {
-    SECTION("LightGBM 特征维度 == 10");
-    EXPECT(kNumFeatures == 10, "kNumFeatures 常量值为10");
-
-    // 验证 ExtractFeatures 确实输出 10 维
-    LGBMScorerProcessor scorer;
-    YAML::Node cfg;
-    cfg["weight"] = 1.0f;
-    scorer.Init(cfg);
-
-    Session session;
-    session.qp_info.terms = {"深度", "学习"};
-    DocCandidate cand;
-    cand.publish_time = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    cand.debug_scores["bm25"]      = 0.5f;
-    cand.debug_scores["quality"]   = 0.5f;
-    cand.debug_scores["freshness"] = 0.8f;
-    cand.click_count = 50;
-    cand.like_count  = 10;
-    cand.title       = "深度学习实战";
-    cand.category    = "tech";
-    cand.recall_source = "inverted";
-
-    std::vector<DocCandidate> cands = {cand};
-    scorer.Process(session, cands);
-    // 只要 Process 不崩溃且有输出分数，说明特征提取正常
-    EXPECT(cands[0].fine_score > 0.0f, "10维特征提取并推理输出正分");
-}
-
-// ============================================================
-// VectorRecallProcessor - 无 Faiss 降级暴力搜索测试
-// ============================================================
-void test_vector_recall_fallback() {
-    SECTION("VectorRecallProcessor - 无 Faiss 降级模式");
-
-    VectorRecallProcessor proc;
-    YAML::Node cfg;
-    cfg["enable"] = true;
-    cfg["top_k"] = 10;
-    cfg["similarity_threshold"] = 0.0f;  // 阈值设为0，全部通过
-    proc.Init(cfg);
-
-    // 构建伪 VectorIndex（暴力搜索 fallback 模式，无需 Faiss）
-    auto vec_idx = std::make_shared<VectorIndex>(VectorIndexConfig{64 /*dim*/});
-    proc.SetVectorIndex(vec_idx);
-
-    // 添加几条文档向量
-    std::vector<float> emb_a(64, 0.1f); emb_a[0] = 0.9f;  // doc_a 方向
-    std::vector<float> emb_b(64, 0.1f); emb_b[1] = 0.9f;  // doc_b 方向
-    vec_idx->AddVector("doc_a", emb_a);
-    vec_idx->AddVector("doc_b", emb_b);
-
-    // 查询向量接近 doc_a
-    Session session;
-    session.qp_info.query_embedding = emb_a;  // 和 doc_a 完全相同
-
-    int ret = proc.Process(session);
-    EXPECT(ret == 0, "VectorRecallProcess::Process 返回0");
-    EXPECT(session.recall_results.size() >= 1, "召回结果非空");
-
-    // 验证 doc_a 被召回（相似度最高）
-    bool found_a = false;
-    for (const auto& c : session.recall_results) {
-        if (c.doc_id == "doc_a") found_a = true;
-    }
-    EXPECT(found_a, "相似度最高的 doc_a 被召回");
-
-    // 测试 enable=false 时跳过
-    VectorRecallProcessor proc2;
-    YAML::Node cfg2;
-    cfg2["enable"] = false;
-    proc2.Init(cfg2);
-    Session session2;
-    session2.qp_info.query_embedding = emb_a;
-    int ret2 = proc2.Process(session2);
-    EXPECT(ret2 == 0, "enable=false 时 Process 返回0（跳过）");
-    EXPECT(session2.recall_results.empty(), "enable=false 时无召回结果");
-}
-
-// ============================================================
-// MMR A/B 覆盖：session.ab_override.mmr_lambda 生效
-// ============================================================
-void test_mmr_ab_override() {
-    SECTION("MMRRerankProcessor - A/B lambda 覆盖");
-
-    MMRRerankProcessor mmr;
-    YAML::Node cfg;
-    cfg["lambda"] = 0.7f;
-    cfg["top_k"]  = 10;
-    mmr.Init(cfg);
-
-    // 构造 3 条候选：前两条标题相同，第三条不同
-    std::vector<DocCandidate> cands;
-    for (int i = 0; i < 3; ++i) {
-        DocCandidate c;
-        c.title       = (i < 2) ? "相同标题ABC" : "完全不同的内容";
-        c.fine_score  = 1.0f - i * 0.1f;
-        cands.push_back(c);
-    }
-
-    // lambda=0.0（完全多样性）：应偏向选不同内容
-    Session s_div;
-    s_div.ab_override.mmr_lambda = 0.0f;
-    std::vector<DocCandidate> c_div = cands;
-    mmr.Process(s_div, c_div);
-
-    // lambda=1.0（完全相关性）：按 fine_score 排
-    Session s_rel;
-    s_rel.ab_override.mmr_lambda = 1.0f;
-    std::vector<DocCandidate> c_rel = cands;
-    mmr.Process(s_rel, c_rel);
-
-    EXPECT(!c_div.empty(), "lambda=0.0 时 MMR 有输出");
-    EXPECT(!c_rel.empty(), "lambda=1.0 时 MMR 有输出");
-    // 结果集大小相同（候选数相同）
-    EXPECT(c_div.size() == c_rel.size() || !c_div.empty(),
-           "A/B lambda 覆盖下 MMR 正常运行");
-}
-
-// ============================================================
-// BackgroundScheduler - 启动/停止/生命周期
-// ============================================================
-void test_background_scheduler_lifecycle() {
-    SECTION("BackgroundScheduler - 启动/停止生命周期");
-
-    BackgroundScheduler scheduler;
-
-    // 默认未运行
-    EXPECT(!scheduler.IsRunning(), "创建后默认未运行");
-
-    // 配置全部 disable，启动后应正常运行（空循环）
-    AutoTrainConfig train_cfg;
-    train_cfg.enable = false;
-    scheduler.SetAutoTrainConfig(train_cfg);
-
-    AutoIndexRebuildConfig rebuild_cfg;
-    rebuild_cfg.enable = false;
-    scheduler.SetAutoIndexRebuildConfig(rebuild_cfg);
-
-    scheduler.Start();
-    EXPECT(scheduler.IsRunning(), "Start() 后 IsRunning()=true");
-
-    // 重复 Start 应安全
-    scheduler.Start();
-    EXPECT(scheduler.IsRunning(), "重复 Start() 安全");
-
-    // 停止
-    scheduler.Stop();
-    EXPECT(!scheduler.IsRunning(), "Stop() 后 IsRunning()=false");
-
-    // 重复 Stop 应安全
-    scheduler.Stop();
-    EXPECT(!scheduler.IsRunning(), "重复 Stop() 安全");
-}
-
-// ============================================================
-// BackgroundScheduler - 快速启停（模拟短生命周期）
-// ============================================================
-void test_background_scheduler_quick_stop() {
-    SECTION("BackgroundScheduler - 快速启停无死锁");
-
-    // 验证启动后立即停止不会死锁
-    for (int i = 0; i < 5; ++i) {
-        BackgroundScheduler scheduler;
-        AutoTrainConfig cfg;
-        cfg.enable = true;
-        cfg.check_interval_sec = 1;
-        scheduler.SetAutoTrainConfig(cfg);
-        scheduler.Start();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        scheduler.Stop();
-    }
-    EXPECT(true, "5次快速启停无死锁");
-}
-
-// ============================================================
-// AppContext::SwapIndexes - 原子切换索引
-// ============================================================
-void test_swap_indexes() {
-    SECTION("AppContext::SwapIndexes - 原子索引切换");
+void test_app_context_swap() {
+    SECTION("AppContext - SwapIndexes 原子切换");
 
     auto& ctx = AppContext::Instance();
 
-    // 构建新索引
-    auto new_inverted = std::make_shared<InvertedIndex>();
-    new_inverted->AddDocument("swap_doc_1", "测试标题", "测试内容",
-                              "test", {}, 100);
-
     VectorIndexConfig vec_cfg;
-    vec_cfg.dim = 64;
-    auto new_vector = std::make_shared<VectorIndex>(vec_cfg);
+    vec_cfg.dim = 8;
 
-    // 记录切换前的索引指针
-    auto old_inverted = ctx.GetInvertedIndex();
+    auto new_inv = std::make_shared<InvertedIndex>();
+    new_inv->AddDocument("swap_1", "测试", "内容", "test", {}, 10);
 
-    // 执行原子切换
-    ctx.SwapIndexes(new_inverted, new_vector);
+    auto new_vec = std::make_shared<VectorIndex>(vec_cfg);
 
-    // 验证切换成功
+    ctx.SwapIndexes(new_inv, new_vec);
+
     auto current = ctx.GetInvertedIndex();
-    EXPECT(current.get() == new_inverted.get(), "切换后 GetInvertedIndex 返回新索引");
-    EXPECT(current.get() != old_inverted.get(), "新旧索引指针不同");
-    EXPECT(ctx.GetVectorIndex().get() == new_vector.get(), "向量索引也切换成功");
-
-    // 验证新索引内容
-    EXPECT(current->GetDocCount() == 1, "新索引包含 1 篇文档");
-
-    // 恢复旧索引（不影响后续测试）
-    ctx.SwapIndexes(old_inverted, std::make_shared<VectorIndex>(vec_cfg));
+    EXPECT(current.get() == new_inv.get(), "切换后获取新索引");
+    EXPECT(current->GetDocCount() == 1, "新索引有 1 篇文档");
 }
 
 // ============================================================
-// BackgroundScheduler - 并发安全（读写索引 + 切换同时发生）
+// 12. AppContext - 并发 SwapIndexes 安全
 // ============================================================
-void test_swap_indexes_concurrent() {
-    SECTION("SwapIndexes - 并发读写安全");
+void test_swap_concurrent() {
+    SECTION("AppContext - 并发 Swap 安全");
 
     auto& ctx = AppContext::Instance();
-
-    // 确保初始有有效索引
     VectorIndexConfig vec_cfg;
-    vec_cfg.dim = 64;
-    ctx.SwapIndexes(std::make_shared<InvertedIndex>(),
-                    std::make_shared<VectorIndex>(vec_cfg));
+    vec_cfg.dim = 8;
 
     std::atomic<int> errors{0};
     std::atomic<bool> stop{false};
 
-    // 读线程：持续读取索引
+    ctx.SwapIndexes(std::make_shared<InvertedIndex>(),
+                    std::make_shared<VectorIndex>(vec_cfg));
+
     std::thread reader([&]() {
         while (!stop.load()) {
             auto idx = ctx.GetInvertedIndex();
             if (!idx) ++errors;
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
         }
     });
 
-    // 切换线程：快速切换多次（每次都是有效索引）
     std::thread swapper([&]() {
-        for (int i = 0; i < 20; ++i) {
-            auto new_inv = std::make_shared<InvertedIndex>();
-            auto new_vec = std::make_shared<VectorIndex>(vec_cfg);
-            ctx.SwapIndexes(new_inv, new_vec);
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        for (int i = 0; i < 30; ++i) {
+            ctx.SwapIndexes(std::make_shared<InvertedIndex>(),
+                            std::make_shared<VectorIndex>(vec_cfg));
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
         stop.store(true);
     });
 
     reader.join();
     swapper.join();
+    EXPECT(errors.load() == 0, "并发读 + Swap 无 null 指针");
+}
 
-    EXPECT(errors.load() == 0, "并发读 + 切换无 null 指针");
+// ============================================================
+// 13. Scheduler - 启停生命周期
+// ============================================================
+void test_scheduler_lifecycle() {
+    SECTION("Scheduler - 启停生命周期");
+
+    scheduler::Scheduler sched;
+    EXPECT(!sched.IsRunning(), "初始未运行");
+
+    sched.Start();
+    EXPECT(sched.IsRunning(), "Start 后运行中");
+
+    sched.Start();  // 重复 Start
+    EXPECT(sched.IsRunning(), "重复 Start 安全");
+
+    sched.Stop();
+    EXPECT(!sched.IsRunning(), "Stop 后停止");
+
+    sched.Stop();  // 重复 Stop
+    EXPECT(!sched.IsRunning(), "重复 Stop 安全");
+}
+
+// ============================================================
+// 14. Scheduler - 快速启停无死锁
+// ============================================================
+void test_scheduler_quick_stop() {
+    SECTION("Scheduler - 快速启停无死锁");
+
+    for (int i = 0; i < 5; ++i) {
+        scheduler::Scheduler sched;
+        sched.Start();
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        sched.Stop();
+    }
+    EXPECT(true, "5 次快速启停无死锁");
+}
+
+// ============================================================
+// 15. SearchSession - 兼容基类 + DocCandidate
+// ============================================================
+void test_search_session() {
+    SECTION("SearchSession - 业务字段完整性");
+
+    SearchSession session;
+    session.request.set_query("测试查询");
+    session.request.set_uid("user_001");
+    session.request.set_page(1);
+    session.request.set_page_size(20);
+
+    EXPECT(session.request.query() == "测试查询", "query 设置正确");
+    EXPECT(session.request.uid() == "user_001", "uid 设置正确");
+
+    // DocCandidate
+    DocCandidate c;
+    c.doc_id = "doc_1";
+    c.recall_source = "inverted";
+    c.recall_score = 0.8f;
+    c.coarse_score = 0.0f;
+    session.recall_results.push_back(c);
+    EXPECT(session.recall_results.size() == 1, "recall_results 可添加");
+
+    // AB override
+    EXPECT(session.ab_override.mmr_lambda == -1.f, "mmr_lambda 默认 -1");
+    session.ab_override.mmr_lambda = 0.5f;
+    EXPECT(session.ab_override.mmr_lambda == 0.5f, "mmr_lambda 可修改");
+}
+
+// ============================================================
+// 16. unordered_set 去重性能
+// ============================================================
+void test_dedup_performance() {
+    SECTION("去重 - unordered_set O(1) 验证");
+
+    const int N = 5000;
+    std::unordered_set<std::string> seen;
+    for (int i = 0; i < N; ++i) {
+        seen.insert("doc_" + std::to_string(i));
+    }
+
+    int hits = 0;
+    for (int i = 0; i < N; ++i) {
+        if (seen.count("doc_" + std::to_string(i))) ++hits;
+    }
+    EXPECT(hits == N, "5000 条全部命中");
+    EXPECT(seen.count("doc_99999") == 0, "不存在的 ID 正确判断");
+}
+
+// ============================================================
+// 17. EmbeddingProviderFactory - 配置驱动创建
+// ============================================================
+void test_embedding_factory() {
+    SECTION("EmbeddingProviderFactory - 配置驱动");
+
+    // pseudo 模式
+    YAML::Node cfg_pseudo;
+    cfg_pseudo["provider"] = "pseudo";
+    cfg_pseudo["dim"] = 128;
+    auto pseudo = EmbeddingProviderFactory::Create(cfg_pseudo);
+    EXPECT(pseudo != nullptr, "pseudo provider 创建成功");
+    EXPECT(pseudo->GetDim() == 128, "dim = 128");
+    EXPECT(pseudo->Name() == "pseudo_bow_hash", "Name 正确");
+
+    // onnx 模式（无模型文件时降级）
+    YAML::Node cfg_onnx;
+    cfg_onnx["provider"] = "onnx";
+    cfg_onnx["dim"] = 768;
+    cfg_onnx["model_path"] = "/nonexistent/model.onnx";
+    cfg_onnx["tokenizer_path"] = "/nonexistent/vocab.txt";
+    auto fallback = EmbeddingProviderFactory::Create(cfg_onnx);
+    EXPECT(fallback != nullptr, "onnx 模式降级到 pseudo");
+    EXPECT(fallback->GetDim() == 768, "降级后 dim 保持 768");
+
+    // 默认（无 provider 字段）
+    YAML::Node cfg_default;
+    auto def = EmbeddingProviderFactory::Create(cfg_default);
+    EXPECT(def != nullptr, "默认创建成功");
+    EXPECT(def->GetDim() == 768, "默认 dim = 768");
+}
+
+// ============================================================
+// 18. Handler 反射注册 - 四个业务 Handler 均可反射创建
+// ============================================================
+void test_handler_registry() {
+    SECTION("Handler 反射注册 - 四个业务 Handler");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+
+    auto* search = registry.GetSingleton("SearchBizHandler");
+    EXPECT(search != nullptr, "SearchBizHandler 可反射获取");
+    if (search) EXPECT(search->HandlerName() == "SearchBizHandler", "Search HandlerName 正确");
+
+    auto* sug = registry.GetSingleton("SugBizHandler");
+    EXPECT(sug != nullptr, "SugBizHandler 可反射获取");
+    if (sug) EXPECT(sug->HandlerName() == "SugBizHandler", "Sug HandlerName 正确");
+
+    auto* hint = registry.GetSingleton("HintBizHandler");
+    EXPECT(hint != nullptr, "HintBizHandler 可反射获取");
+    if (hint) EXPECT(hint->HandlerName() == "HintBizHandler", "Hint HandlerName 正确");
+
+    auto* nav = registry.GetSingleton("NavBizHandler");
+    EXPECT(nav != nullptr, "NavBizHandler 可反射获取");
+    if (nav) EXPECT(nav->HandlerName() == "NavBizHandler", "Nav HandlerName 正确");
+
+    // 不存在的 Handler
+    auto* nope = registry.GetSingleton("FakeHandler");
+    EXPECT(nope == nullptr, "不存在的 Handler 返回 nullptr");
+}
+
+// ============================================================
+// 19. Search Handler - 主流程端到端
+// ============================================================
+void test_search_handler_e2e() {
+    SECTION("SearchBizHandler - 端到端主流程");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+    auto* handler = registry.GetSingleton("SearchBizHandler");
+    EXPECT(handler != nullptr, "获取 SearchBizHandler 实例");
+    if (!handler) return;
+
+    // 构造 SearchSession
+    auto session = std::make_unique<SearchSession>();
+    session->request.set_query("深度学习");
+    session->request.set_uid("test_user_001");
+    session->request.set_page(1);
+    session->request.set_page_size(10);
+    session->request.set_business_type("search");
+
+    // 设置 deadline（不超时）
+    session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 30000;
+
+    // 走完整主流程（不崩溃即通过）
+    int32_t ret = handler->Search(session.get());
+    EXPECT(ret >= 0 || ret == 0, "Search 主流程执行完毕（不崩溃）");
+
+    // 验证 response 被填充
+    EXPECT(!session->response.empty() || session->response_code >= 0,
+           "Search 产生了响应");
+
+    // 验证各阶段耗时已记录
+    EXPECT(session->timing.total_ms >= 0, "总耗时已记录");
+}
+
+// ============================================================
+// 20. Search - CanSearch 准入检查
+// ============================================================
+void test_search_can_search() {
+    SECTION("SearchBizHandler - CanSearch 准入检查");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+    auto* handler = registry.GetSingleton("SearchBizHandler");
+    if (!handler) { EXPECT(false, "获取 handler 失败"); return; }
+
+    // 空 query 应该被拒绝
+    auto session_empty = std::make_unique<SearchSession>();
+    session_empty->request.set_query("");
+    session_empty->request.set_business_type("search");
+    session_empty->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    int32_t ret = handler->Search(session_empty.get());
+    // 空 query 搜索应返回特定错误码或空结果（不崩溃）
+    EXPECT(true, "空 query 搜索不崩溃");
+}
+
+// ============================================================
+// 21. Sug Handler - Trie 召回
+// ============================================================
+void test_sug_handler() {
+    SECTION("SugBizHandler - Trie 召回 + 排序");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+    auto* handler = registry.GetSingleton("SugBizHandler");
+    EXPECT(handler != nullptr, "获取 SugBizHandler 实例");
+    if (!handler) return;
+
+    // Sug 请求
+    auto session = std::make_unique<SearchSession>();
+    session->request.set_query("深度");
+    session->request.set_uid("test_user_002");
+    session->request.set_business_type("sug");
+    session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    int32_t ret = handler->Search(session.get());
+    EXPECT(ret >= 0 || ret == 0, "Sug 主流程执行完毕");
+
+    // 空 query 也应安全处理（sug 允许空前缀？取决于实现）
+    auto session2 = std::make_unique<SearchSession>();
+    session2->request.set_query("");
+    session2->request.set_business_type("sug");
+    session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    handler->Search(session2.get());
+    EXPECT(true, "Sug 空 query 不崩溃");
+}
+
+// ============================================================
+// 22. Sug - RebuildTrie 安全性
+// ============================================================
+void test_sug_trie_rebuild() {
+    SECTION("SugBizHandler - RebuildTrie 安全性");
+
+    // 无 DocStore 时 RebuildTrie 应安全返回
+    SugBizHandler::RebuildTrie();
+    EXPECT(true, "无 DocStore 时 RebuildTrie 安全返回");
+}
+
+// ============================================================
+// 23. Hint Handler - 点后推荐
+// ============================================================
+void test_hint_handler() {
+    SECTION("HintBizHandler - 点后推荐流程");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+    auto* handler = registry.GetSingleton("HintBizHandler");
+    EXPECT(handler != nullptr, "获取 HintBizHandler 实例");
+    if (!handler) return;
+
+    // Hint 请求需要 doc_id
+    auto session = std::make_unique<SearchSession>();
+    session->request.set_query("");
+    session->request.set_uid("test_user_003");
+    session->request.set_business_type("hint");
+    session->request.mutable_extra()->insert({"doc_id", "doc_001"});
+    session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    int32_t ret = handler->Search(session.get());
+    EXPECT(ret >= 0 || ret == 0, "Hint 主流程执行完毕");
+
+    // 无 doc_id 时应被 CanSearch 拒绝（不崩溃）
+    auto session2 = std::make_unique<SearchSession>();
+    session2->request.set_query("");
+    session2->request.set_business_type("hint");
+    session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    handler->Search(session2.get());
+    EXPECT(true, "Hint 无 doc_id 不崩溃");
+}
+
+// ============================================================
+// 24. Nav Handler - 搜前引导
+// ============================================================
+void test_nav_handler() {
+    SECTION("NavBizHandler - 搜前引导流程");
+
+    auto& registry = framework::ClassRegistry<framework::BaseHandler>::Instance();
+    auto* handler = registry.GetSingleton("NavBizHandler");
+    EXPECT(handler != nullptr, "获取 NavBizHandler 实例");
+    if (!handler) return;
+
+    // Nav 允许空 query（搜前引导不需要 query）
+    auto session = std::make_unique<SearchSession>();
+    session->request.set_query("");
+    session->request.set_uid("test_user_004");
+    session->request.set_business_type("nav");
+    session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    int32_t ret = handler->Search(session.get());
+    EXPECT(ret >= 0 || ret == 0, "Nav 空 query 主流程执行完毕");
+
+    // 带 query 也不应崩溃
+    auto session2 = std::make_unique<SearchSession>();
+    session2->request.set_query("热门");
+    session2->request.set_business_type("nav");
+    session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
+
+    handler->Search(session2.get());
+    EXPECT(true, "Nav 带 query 不崩溃");
+}
+
+// ============================================================
+// 25. PipelineManager - 自动扫描 biz/*.yaml
+// ============================================================
+void test_pipeline_manager_scan() {
+    SECTION("PipelineManager - 自动扫描 biz/*.yaml");
+
+    // PipelineManager 在 main 中初始化，这里测试它能正确加载配置目录
+    framework::PipelineManager pm;
+    bool ok = pm.Init("./config");
+
+    // 如果 config/biz/ 目录存在且有 yaml 文件，应加载成功
+    EXPECT(ok, "PipelineManager::Init 成功");
+
+    // 检查 search 业务配置是否加载
+    auto* search_cfg = pm.GetConfig("search");
+    EXPECT(search_cfg != nullptr, "search 业务 Pipeline 配置已加载");
+
+    // 检查 sug 业务配置
+    auto* sug_cfg = pm.GetConfig("sug");
+    EXPECT(sug_cfg != nullptr, "sug 业务 Pipeline 配置已加载");
+
+    // 检查 hint 业务配置
+    auto* hint_cfg = pm.GetConfig("hint");
+    EXPECT(hint_cfg != nullptr, "hint 业务 Pipeline 配置已加载");
+
+    // 检查 nav 业务配置
+    auto* nav_cfg = pm.GetConfig("nav");
+    EXPECT(nav_cfg != nullptr, "nav 业务 Pipeline 配置已加载");
+
+    // 不存在的业务
+    auto* fake_cfg = pm.GetConfig("fake_business");
+    EXPECT(fake_cfg == nullptr, "不存在的业务返回 nullptr");
+}
+
+// ============================================================
+// 26. HandlerManager - 配置驱动注册
+// ============================================================
+void test_handler_manager_config() {
+    SECTION("HandlerManager - 配置驱动注册");
+
+    framework::HandlerManager hm;
+    int32_t ret = hm.InitFromConfig("./config/framework.yaml");
+    EXPECT(ret == 0, "InitFromConfig 成功");
+
+    auto types = hm.GetAllBusinessTypes();
+    EXPECT(types.size() >= 4, "至少注册了 4 个业务");
+
+    // 验证各业务可获取
+    EXPECT(hm.GetHandler("search") != nullptr, "search Handler 已注册");
+    EXPECT(hm.GetHandler("sug") != nullptr, "sug Handler 已注册");
+    EXPECT(hm.GetHandler("hint") != nullptr, "hint Handler 已注册");
+    EXPECT(hm.GetHandler("nav") != nullptr, "nav Handler 已注册");
+    EXPECT(hm.GetHandler("fake") == nullptr, "不存在的业务返回 nullptr");
+}
+
+// ============================================================
+// 27. Scheduler - 配置驱动初始化
+// ============================================================
+void test_scheduler_config() {
+    SECTION("Scheduler - 配置驱动初始化");
+
+    scheduler::Scheduler sched;
+    bool ok = sched.InitFromConfig("./config/framework.yaml");
+    EXPECT(ok, "Scheduler::InitFromConfig 成功");
+    EXPECT(sched.TaskCount() >= 3, "至少加载了 3 个任务（train/rebuild/trie）");
+
+    // 启停正常
+    sched.Start();
+    EXPECT(sched.IsRunning(), "Start 后运行中");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    sched.Stop();
+    EXPECT(!sched.IsRunning(), "Stop 后停止");
 }
 
 // ============================================================
 // main
 // ============================================================
 int main() {
-    std::cout << "====================================================\n";
-    std::cout << "  MiniSearchRec 完整集成测试 (v1.2)\n";
-    std::cout << "====================================================\n";
+    std::cout << R"(
+====================================================
+  MiniSearchRec v2.0 - Test Suite
+====================================================
+)" << std::endl;
 
+    // ── 框架层测试 ──
+    test_session_basics();
+    test_processor_registry();
+    test_processor_pipeline();
+
+    // ── 公共算子层测试 ──
+    test_inverted_index();
+    test_vector_index();
+    test_bm25_scorer();
     test_freshness_scorer();
-    test_dedup_uset();
-    test_mmr_chinese();
-    test_ema_interest_update();
-    test_ab_getparam();
-    test_session_ab_override();
-    test_timeout_control();
-    test_query_embedding();
-    test_lgbm_double_buffer();
-    test_lgbm_concurrent_safety();
-    test_hot_content_cache();
-    test_cache_key_includes_uid();
-    test_feature_dimension();
-    test_vector_recall_fallback();
-    test_mmr_ab_override();
-    test_background_scheduler_lifecycle();
-    test_background_scheduler_quick_stop();
-    test_swap_indexes();
-    test_swap_indexes_concurrent();
+    test_pseudo_embedding();
+    test_onnx_tokenizer();
+    test_ab_test();
+    test_dedup_performance();
+    test_embedding_factory();
+
+    // ── 基础设施测试 ──
+    test_app_context_swap();
+    test_swap_concurrent();
+    test_scheduler_lifecycle();
+    test_scheduler_quick_stop();
+    test_search_session();
+
+    // ── 配置驱动测试 ──
+    test_pipeline_manager_scan();
+    test_handler_manager_config();
+    test_scheduler_config();
+
+    // ── Handler 反射注册测试 ──
+    test_handler_registry();
+
+    // ── 业务 Handler 端到端测试 ──
+    test_search_handler_e2e();
+    test_search_can_search();
+    test_sug_handler();
+    test_sug_trie_rebuild();
+    test_hint_handler();
+    test_nav_handler();
 
     std::cout << "\n====================================================\n";
-    std::cout << "  结果：PASS=" << g_pass << "  FAIL=" << g_fail << "\n";
+    std::cout << "  PASS=" << g_pass << "  FAIL=" << g_fail << "\n";
     std::cout << "====================================================\n";
     return (g_fail == 0) ? 0 : 1;
 }

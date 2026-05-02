@@ -1,0 +1,29 @@
+# ============================================================
+# MiniSearchRec - Nav 教育页（搜前引导）配置
+# 参考：通用搜索框架 GLOBALSEARCHER 业务
+# ============================================================
+
+nav:
+  max_results: 6                    # 对标 GLOBAL_SEARCH_QUANZI_MAX_SHOW_NUM = 6
+  cache_ttl_sec: 60
+  hot_decay_half_life_days: 7
+  recall:
+    global_hot:
+      enable: true
+      weight: 0.5
+      top_n: 20
+    user_history:
+      enable: true
+      weight: 0.3
+      history_days: 7
+    category_hot:
+      enable: true
+      weight: 0.2
+      top_n: 5
+  preset_words:                     # 冷启动兜底
+    - "深度学习"
+    - "算法面试"
+    - "系统设计"
+    - "Redis"
+    - "分布式系统"
+    - "搜索推荐"

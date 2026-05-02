@@ -1,5 +1,7 @@
 // ============================================================
 // MiniSearchRec - Redis 客户端实现
+// InMemoryRedisClient：本地内存后端（Redis 未配置时的降级方案）
+// 支持 TTL 过期、线程安全、完整 Redis 接口
 // ============================================================
 
 #include "cache/redis_client.h"
@@ -12,12 +14,14 @@
 namespace minisearchrec {
 
 // ============================================================
-// 模拟 Redis 客户端（用于教学和无 Redis 环境）
+// InMemoryRedisClient：本地内存后端
+// 用于 Redis 未配置或不可用时的降级方案
+// 完整实现所有 Redis 接口，支持 TTL 过期
 // ============================================================
-class MockRedisClient : public RedisClient {
+class InMemoryRedisClient : public RedisClient {
 public:
-    MockRedisClient() = default;
-    ~MockRedisClient() override = default;
+    InMemoryRedisClient() = default;
+    ~InMemoryRedisClient() override = default;
 
     bool Connect(const std::string& host, int port,
                   const std::string& password) override {
@@ -74,8 +78,8 @@ public:
     }
 
     bool Exists(const std::string& key) override {
-        std::string dummy;
-        return Get(key, dummy);
+        std::string value;
+        return Get(key, value);
     }
 
     bool Expire(const std::string& key, int ttl_seconds) override {
@@ -272,9 +276,15 @@ private:
 // ============================================================
 // 工厂实现
 // ============================================================
-std::unique_ptr<RedisClient> RedisClientFactory::Create(bool /*use_mock*/) {
-    // 目前默认返回内存模拟客户端（安装 hiredis 后可切换为真实实现）
-    return std::unique_ptr<RedisClient>(new MockRedisClient());
+std::unique_ptr<RedisClient> RedisClientFactory::Create(bool use_local_backend) {
+#ifdef USE_HIREDIS
+    if (!use_local_backend) {
+        // HiredisClient 需链接 hiredis 库：cmake -DUSE_HIREDIS=ON
+        // return std::make_unique<HiredisClient>();
+    }
+#endif
+    // 默认/降级：使用本地内存后端
+    return std::unique_ptr<RedisClient>(new InMemoryRedisClient());
 }
 
 std::vector<std::unique_ptr<RedisClient>> RedisClientFactory::CreatePool(
@@ -282,9 +292,9 @@ std::vector<std::unique_ptr<RedisClient>> RedisClientFactory::CreatePool(
     int pool_size) {
     std::vector<std::unique_ptr<RedisClient>> pool;
     for (int i = 0; i < pool_size; ++i) {
-        auto* client = new MockRedisClient();
+        auto client = Create(false);
         client->Connect(host, port, password);
-        pool.emplace_back(client);
+        pool.push_back(std::move(client));
     }
     return pool;
 }

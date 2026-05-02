@@ -230,5 +230,18 @@ std::string Utf8Truncate(const std::string& str, size_t max_bytes) {
     return str.substr(0, i);
 }
 
+size_t Utf8Len(const std::string& str) {
+    size_t len = 0;
+    for (size_t i = 0; i < str.size(); ) {
+        unsigned char c = str[i];
+        if (c < 0x80)      { i += 1; }
+        else if (c < 0xE0) { i += 2; }
+        else if (c < 0xF0) { i += 3; }
+        else               { i += 4; }
+        ++len;
+    }
+    return len;
+}
+
 } // namespace utils
 } // namespace minisearchrec

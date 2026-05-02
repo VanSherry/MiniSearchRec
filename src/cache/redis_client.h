@@ -1,7 +1,10 @@
 // ============================================================
 // MiniSearchRec - Redis 客户端
-// 参考：微信 Redis 客户端、X(Twitter) RedisWrapper
-// 作用：提供 Redis 操作接口，支持缓存、计数器等
+// 对标：业界 Redis 缓存客户端
+// 策略：
+//   - 编译时有 hiredis → 使用真实 Redis 连接
+//   - 无 hiredis → 使用本地内存后端（InMemoryRedisClient）
+//   - 通过配置动态决定是否启用 Redis
 // ============================================================
 
 #ifndef MINISEARCHREC_REDIS_CLIENT_H
@@ -13,10 +16,11 @@
 #include <mutex>
 #include <chrono>
 
-// 如果安装了 hiredis，定义 USE_HIREDIS
-// 否则使用 HTTP 模拟（用于教学）
+// 编译时定义 USE_HIREDIS 以启用真实 Redis 连接
+// 未定义时使用 InMemoryRedisClient（本地内存后端，支持所有接口）
 #ifndef USE_HIREDIS
-// #define USE_HIREDIS  // 取消注释以启用真实 Redis 客户端
+// 自动检测：如果安装了 hiredis 则启用
+// cmake 中通过 find_library(HIREDIS_LIB hiredis) 控制
 #endif
 
 namespace minisearchrec {
@@ -118,13 +122,13 @@ public:
 
 // ============================================================
 // Redis 客户端工厂
+// use_local_backend=true 时强制使用本地内存后端
+// use_local_backend=false 且编译了 hiredis 时使用真实 Redis
 // ============================================================
 class RedisClientFactory {
 public:
-    // 创建 Redis 客户端实例
-    static std::unique_ptr<RedisClient> Create(bool use_mock = false);
+    static std::unique_ptr<RedisClient> Create(bool use_local_backend = false);
 
-    // 创建连接池
     static std::vector<std::unique_ptr<RedisClient>> CreatePool(
         const std::string& host, int port, const std::string& password,
         int pool_size);

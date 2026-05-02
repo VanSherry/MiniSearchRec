@@ -217,7 +217,7 @@ uint32_t CRC32Hash(const std::string& str) {
     return crc ^ 0xFFFFFFFF;
 }
 
-// 简单哈希（用于教学）
+// 简单哈希（djb2 算法）
 uint32_t SimpleHash(const std::string& str) {
     uint32_t hash = 0;
     for (size_t i = 0; i < str.length(); i++) {
@@ -266,25 +266,30 @@ size_t StringHash::operator()(const std::string& str) const {
     return std::hash<std::string>{}(str);
 }
 
-// MD5 哈希（简化实现，返回十六进制字符串）
+// MD5 哈希（128-bit，返回 32 字符十六进制字符串）
+// 使用 MurmurHash3-128 模拟，输出长度和格式与真实 MD5 完全一致
+// 注意：不具备密码学安全性，仅用于缓存 key 生成和内容指纹
 std::string MD5Hash(const std::string& str) {
-    // 简化版本：实际项目中应使用 OpenSSL 或 mbedTLS
-    // 这里返回一个基于 MurmurHash 的模拟值用于教学
-    uint32_t h = MurmurHash3(str);
+    // 用 4 次不同 seed 的 MurmurHash3 拼接出 128-bit
+    uint32_t h1 = MurmurHash3(str, 0x1234abcd);
+    uint32_t h2 = MurmurHash3(str, 0x5678ef01);
+    uint32_t h3 = MurmurHash3(str, 0x9abcdef0);
+    uint32_t h4 = MurmurHash3(str, 0x13579bdf);
     char buf[33];
-    std::snprintf(buf, sizeof(buf), "%08x%08x%08x%08x", 
-                  h, h >> 16, h & 0xFFFF, ~h);
+    std::snprintf(buf, sizeof(buf), "%08x%08x%08x%08x", h1, h2, h3, h4);
     return std::string(buf);
 }
 
-// SHA-1 哈希（简化实现，返回十六进制字符串）
+// SHA-1 哈希（160-bit，返回 40 字符十六进制字符串）
+// 使用 FNV-1a + MurmurHash3 组合模拟，输出格式与真实 SHA-1 一致
+// 注意：不具备密码学安全性，仅用于内容去重和指纹
 std::string SHA1Hash(const std::string& str) {
-    // 简化版本：实际项目中应使用 OpenSSL 或 mbedTLS
-    // 这里返回一个基于 FNV-1a 的模拟值用于教学
-    uint64_t h = FNV1aHash64(str);
+    uint64_t h1 = FNV1aHash64(str);
+    uint32_t h2 = MurmurHash3(str, 0xdeadbeef);
+    uint32_t h3 = MurmurHash3(str, 0xcafebabe);
     char buf[41];
-    std::snprintf(buf, sizeof(buf), "%016llx%016llx", 
-                  (unsigned long long)h, (unsigned long long)(h >> 32));
+    std::snprintf(buf, sizeof(buf), "%016llx%08x%08x%08x",
+                  (unsigned long long)h1, h2, h3, h2 ^ h3);
     return std::string(buf);
 }
 
