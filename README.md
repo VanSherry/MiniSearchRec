@@ -8,7 +8,7 @@
 
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg?style=flat-square&logo=cplusplus)](https://en.cppreference.com/w/cpp/17)
 [![CMake](https://img.shields.io/badge/CMake-3.16+-064F8C.svg?style=flat-square&logo=cmake)](https://cmake.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-117%2F117_passed-brightgreen.svg?style=flat-square)](#测试)
 [![Lines](https://img.shields.io/badge/C%2B%2B_Lines-16%2C600%2B-informational.svg?style=flat-square)](#)
 
@@ -498,7 +498,7 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 
 ## 📜 开源协议
 
-[MIT License](LICENSE) — 可自由使用、修改、分发。
+[Apache License 2.0](LICENSE) — 可自由使用、修改、分发，需保留版权声明。
 
 ---
 
