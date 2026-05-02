@@ -16,6 +16,9 @@ cmake-build-*/
 *.exe
 *.out
 
+# Exception: deps/onnxruntime 预编译库需要跟踪
+!deps/onnxruntime/lib/**
+
 # IDE files
 .vscode/
 .idea/

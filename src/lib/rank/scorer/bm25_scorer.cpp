@@ -21,11 +21,8 @@ int BM25ScorerProcessor::Init(const YAML::Node& config) {
     if (config["b"]) {
         b_ = config["b"].as<float>(0.75f);
     }
-    // 从全局上下文获取倒排索引
+    // 从全局上下文获取倒排索引（Init 时可能还没建好，Process 时延迟获取）
     index_ = AppContext::Instance().GetInvertedIndex();
-    if (!index_) {
-        LOG_WARN("BM25ScorerProcessor: InvertedIndex not ready in AppContext");
-    }
     return 0;
 }
 

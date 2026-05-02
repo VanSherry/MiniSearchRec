@@ -20,10 +20,8 @@ int InvertedRecallProcessor::Init(const YAML::Node& config) {
     if (config["min_term_freq"]) {
         min_term_freq_ = config["min_term_freq"].as<int>(1);
     }
+    // Init 时可能还没建好索引，Process 时会延迟获取
     index_ = AppContext::Instance().GetInvertedIndex();
-    if (!index_) {
-        LOG_WARN("InvertedRecallProcessor: InvertedIndex not ready in AppContext");
-    }
     return 0;
 }
 

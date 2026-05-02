@@ -44,66 +44,110 @@ find_package(Protobuf REQUIRED)
 find_package(absl QUIET)
 
 # ONNX Runtime（可选：内置 embedding 模型推理）
-# 支持三种发现方式：
-#   1. find_package（Homebrew / 系统包管理器安装的 cmake config）
+# 发现优先级：
+#   1. deps/onnxruntime/（内置预编译库，零安装开箱即用）
 #   2. -DONNXRUNTIME_ROOT=<path> 手动指定
-#   3. macOS 自动 brew --prefix / Linux 自动搜索标准路径
-find_package(onnxruntime QUIET)
-if(onnxruntime_FOUND)
-    message(STATUS "ONNX Runtime found via find_package")
-    add_definitions(-DHAVE_ONNXRUNTIME)
-    set(ONNXRUNTIME_LIBRARIES onnxruntime::onnxruntime)
-else()
-    # 自动探测路径
-    if(NOT DEFINED ONNXRUNTIME_ROOT)
-        if(APPLE)
-            execute_process(
-                COMMAND brew --prefix onnxruntime
-                OUTPUT_VARIABLE ONNXRUNTIME_ROOT
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-                ERROR_QUIET
-            )
-        else()
-            # Linux: 常见安装路径
-            foreach(_ort_prefix /usr/local /usr /opt/onnxruntime)
-                if(EXISTS "${_ort_prefix}/include/onnxruntime/onnxruntime_cxx_api.h"
-                   OR EXISTS "${_ort_prefix}/include/onnxruntime_cxx_api.h")
-                    set(ONNXRUNTIME_ROOT "${_ort_prefix}")
-                    break()
-                endif()
-            endforeach()
-        endif()
-    endif()
+#   3. find_package（系统安装 / Homebrew）
+#   4. macOS brew --prefix / Linux 标准路径自动搜索
+set(_ORT_DEPS_DIR "${CMAKE_SOURCE_DIR}/deps/onnxruntime")
+set(_ORT_FOUND OFF)
 
-    if(ONNXRUNTIME_ROOT AND EXISTS "${ONNXRUNTIME_ROOT}")
-        # 查找头文件
-        if(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime/onnxruntime_cxx_api.h")
-            set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include/onnxruntime")
-        elseif(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
-            set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOT}/include")
-        endif()
-        # 查找库（自动匹配 .dylib / .so / .so.x）
-        find_library(ONNXRUNTIME_LIB onnxruntime
-            PATHS "${ONNXRUNTIME_ROOT}/lib"
-                  "${ONNXRUNTIME_ROOT}/lib64"
-            NO_DEFAULT_PATH
-        )
-        if(ONNXRUNTIME_INCLUDE_DIRS AND ONNXRUNTIME_LIB)
-            message(STATUS "ONNX Runtime found at ${ONNXRUNTIME_ROOT}")
-            message(STATUS "  include: ${ONNXRUNTIME_INCLUDE_DIRS}")
-            message(STATUS "  lib: ${ONNXRUNTIME_LIB}")
-            add_definitions(-DHAVE_ONNXRUNTIME)
-            include_directories(${ONNXRUNTIME_INCLUDE_DIRS})
-            set(ONNXRUNTIME_LIBRARIES ${ONNXRUNTIME_LIB})
-        else()
-            message(STATUS "ONNX Runtime: headers/lib not found at ${ONNXRUNTIME_ROOT}")
+# --- 优先级 1: deps/onnxruntime/ 内置库 ---
+if(EXISTS "${_ORT_DEPS_DIR}/include/onnxruntime_cxx_api.h")
+    set(_ORT_INCLUDE "${_ORT_DEPS_DIR}/include")
+    # 按平台选择 lib 子目录
+    if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        set(_ORT_LIB_DIR "${_ORT_DEPS_DIR}/lib/macos-arm64")
+    elseif(APPLE)
+        set(_ORT_LIB_DIR "${_ORT_DEPS_DIR}/lib/macos-x64")
+    else()
+        set(_ORT_LIB_DIR "${_ORT_DEPS_DIR}/lib/linux-x64")
+    endif()
+    find_library(_ORT_LIB onnxruntime PATHS "${_ORT_LIB_DIR}" NO_DEFAULT_PATH)
+    if(_ORT_LIB)
+        message(STATUS "ONNX Runtime found in deps/ (bundled)")
+        message(STATUS "  include: ${_ORT_INCLUDE}")
+        message(STATUS "  lib: ${_ORT_LIB}")
+        add_definitions(-DHAVE_ONNXRUNTIME)
+        include_directories(${_ORT_INCLUDE})
+        set(ONNXRUNTIME_LIBRARIES ${_ORT_LIB})
+        # 设置 RPATH 以便运行时找到 deps 中的 .so/.dylib
+        set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+        list(APPEND CMAKE_BUILD_RPATH "${_ORT_LIB_DIR}")
+        set(_ORT_FOUND ON)
+    endif()
+endif()
+
+# --- 优先级 2: -DONNXRUNTIME_ROOT 手动指定 ---
+if(NOT _ORT_FOUND AND DEFINED ONNXRUNTIME_ROOT AND EXISTS "${ONNXRUNTIME_ROOT}")
+    if(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime/onnxruntime_cxx_api.h")
+        set(_ORT_INCLUDE "${ONNXRUNTIME_ROOT}/include/onnxruntime")
+    elseif(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+        set(_ORT_INCLUDE "${ONNXRUNTIME_ROOT}/include")
+    endif()
+    find_library(_ORT_LIB onnxruntime
+        PATHS "${ONNXRUNTIME_ROOT}/lib" "${ONNXRUNTIME_ROOT}/lib64"
+        NO_DEFAULT_PATH)
+    if(_ORT_INCLUDE AND _ORT_LIB)
+        message(STATUS "ONNX Runtime found at ${ONNXRUNTIME_ROOT}")
+        add_definitions(-DHAVE_ONNXRUNTIME)
+        include_directories(${_ORT_INCLUDE})
+        set(ONNXRUNTIME_LIBRARIES ${_ORT_LIB})
+        set(_ORT_FOUND ON)
+    endif()
+endif()
+
+# --- 优先级 3: find_package ---
+if(NOT _ORT_FOUND)
+    find_package(onnxruntime QUIET)
+    if(onnxruntime_FOUND)
+        message(STATUS "ONNX Runtime found via find_package")
+        add_definitions(-DHAVE_ONNXRUNTIME)
+        set(ONNXRUNTIME_LIBRARIES onnxruntime::onnxruntime)
+        set(_ORT_FOUND ON)
+    endif()
+endif()
+
+# --- 优先级 4: 自动搜索系统路径 ---
+if(NOT _ORT_FOUND)
+    if(APPLE)
+        execute_process(
+            COMMAND brew --prefix onnxruntime
+            OUTPUT_VARIABLE _ORT_BREW OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(_ORT_BREW AND EXISTS "${_ORT_BREW}/include")
+            set(ONNXRUNTIME_ROOT "${_ORT_BREW}")
         endif()
     else()
-        message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
-        message(STATUS "  To enable: brew install onnxruntime (macOS)")
-        message(STATUS "             apt install libonnxruntime-dev (Ubuntu)")
-        message(STATUS "             or cmake -DONNXRUNTIME_ROOT=/path/to/onnxruntime ..")
+        foreach(_p /usr/local /usr /opt/onnxruntime)
+            if(EXISTS "${_p}/include/onnxruntime_cxx_api.h"
+               OR EXISTS "${_p}/include/onnxruntime/onnxruntime_cxx_api.h")
+                set(ONNXRUNTIME_ROOT "${_p}")
+                break()
+            endif()
+        endforeach()
     endif()
+    if(ONNXRUNTIME_ROOT)
+        if(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime/onnxruntime_cxx_api.h")
+            set(_ORT_INCLUDE "${ONNXRUNTIME_ROOT}/include/onnxruntime")
+        elseif(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+            set(_ORT_INCLUDE "${ONNXRUNTIME_ROOT}/include")
+        endif()
+        find_library(_ORT_LIB onnxruntime
+            PATHS "${ONNXRUNTIME_ROOT}/lib" "${ONNXRUNTIME_ROOT}/lib64"
+            NO_DEFAULT_PATH)
+        if(_ORT_INCLUDE AND _ORT_LIB)
+            message(STATUS "ONNX Runtime found at ${ONNXRUNTIME_ROOT}")
+            add_definitions(-DHAVE_ONNXRUNTIME)
+            include_directories(${_ORT_INCLUDE})
+            set(ONNXRUNTIME_LIBRARIES ${_ORT_LIB})
+            set(_ORT_FOUND ON)
+        endif()
+    endif()
+endif()
+
+if(NOT _ORT_FOUND)
+    message(STATUS "ONNX Runtime not found, embedding will use tokenizer-hash fallback")
+    message(STATUS "  The bundled deps/onnxruntime/ should auto-detect on Linux x64 / macOS arm64")
 endif()
 find_package(spdlog QUIET)
 find_package(CppJieba QUIET)
