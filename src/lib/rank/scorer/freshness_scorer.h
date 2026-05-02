@@ -20,7 +20,7 @@ public:
                 std::vector<DocCandidate>& candidates) override;
 
     std::string Name() const override { return "FreshnessScorerProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float weight_ = 1.0f;

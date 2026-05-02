@@ -5,13 +5,16 @@
 #include "lib/feature/doc_features.h"
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 
 namespace minisearchrec {
 
 void DocFeatures::Extract(const DocCandidate& doc,
                            const Session& session,
                            std::unordered_map<std::string, float>& features) const {
-    int64_t now_ms = session.start_time_ms;
+    int64_t now_ms = session.begin_time_us > 0 ? session.begin_time_us / 1000
+                   : std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto& category = session.qp_info.inferred_category;
     const auto& terms = session.qp_info.terms;
     
@@ -158,7 +161,9 @@ float DocFeatures::Readability(const DocCandidate& doc) {
 float DocFeatures::ExtractFeature(const std::string& feature_name,
                                   const DocCandidate& doc,
                                   const Session& session) const {
-    int64_t now_ms = session.start_time_ms;
+    int64_t now_ms = session.begin_time_us > 0 ? session.begin_time_us / 1000
+                   : std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto& category = session.qp_info.inferred_category;
     const auto& terms = session.qp_info.terms;
     

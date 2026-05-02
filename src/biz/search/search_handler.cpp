@@ -51,7 +51,8 @@ int32_t SearchBizHandler::ExtraPreSearch(framework::Session* session) const {
 
     // Query 理解
     QueryParser parser;
-    ss->qp_info = parser.Parse(session->query);
+    ss->qp_info = QPInfo{};
+    parser.Parse(session->query, ss->qp_info);
 
     // AB 实验（从配置读取覆盖参数）
     auto ab_str = session->Get("ab_coarse_top_k");
@@ -256,6 +257,7 @@ int ReloadRankModel(const std::string& new_model_path) {
 }
 
 // 注册到框架
+using namespace minisearchrec;
 REGISTER_MSR_HANDLER(SearchBizHandler);
 
 } // namespace minisearchrec

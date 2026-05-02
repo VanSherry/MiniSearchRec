@@ -173,7 +173,7 @@ int32_t SugBizHandler::DoSearch(framework::Session* session) const {
         return -1;
     }
 
-    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
+    auto ranker = std::shared_ptr<rank::Rank>(factory->CreateRank());
     int ret = ranker->Init(args);
     if (ret != 0) {
         LOG_ERROR("SugBizHandler::DoSearch: rank init failed, ret={}", ret);
@@ -181,7 +181,7 @@ int32_t SugBizHandler::DoSearch(framework::Session* session) const {
     }
 
     // 将 ranker 存入 session 供后续阶段使用
-    session->SetAny("sug_ranker", std::move(ranker));
+    session->SetAny("sug_ranker", ranker);
     return 0;
 }
 
@@ -190,7 +190,7 @@ int32_t SugBizHandler::DoSearch(framework::Session* session) const {
 // 对标 SuggesterHandler::HandleRankFull → RankMgr → Processor链
 // ============================================================
 int32_t SugBizHandler::DoRank(framework::Session* session) const {
-    auto* ranker_ptr = session->GetAny<std::unique_ptr<rank::Rank>>("sug_ranker");
+    auto* ranker_ptr = session->GetAny<std::shared_ptr<rank::Rank>>("sug_ranker");
     if (!ranker_ptr || !(*ranker_ptr)) {
         LOG_ERROR("SugBizHandler::DoRank: ranker not found in session");
         return -1;
@@ -317,4 +317,5 @@ int32_t SugBizHandler::SetResponse(framework::Session* session) const {
 } // namespace minisearchrec
 
 // 注册到框架反射表（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_HANDLER(SugBizHandler);

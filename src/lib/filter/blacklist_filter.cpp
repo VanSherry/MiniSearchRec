@@ -8,12 +8,12 @@
 
 namespace minisearchrec {
 
-bool BlacklistFilterProcessor::Init(const YAML::Node& config) {
+int BlacklistFilterProcessor::Init(const YAML::Node& config) {
     if (config["blacklist_file"]) {
         blacklist_file_ = config["blacklist_file"].as<std::string>("");
         LoadBlacklist(blacklist_file_);
     }
-    return true;
+    return 0;
 }
 
 bool BlacklistFilterProcessor::LoadBlacklist(const std::string& file_path) {
@@ -53,4 +53,5 @@ bool BlacklistFilterProcessor::ShouldKeep(const Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(BlacklistFilterProcessor);

@@ -12,7 +12,7 @@
 
 namespace minisearchrec {
 
-bool UserHistoryRecallProcessor::Init(const YAML::Node& config) {
+int UserHistoryRecallProcessor::Init(const YAML::Node& config) {
     if (config["enable"]) {
         enabled_ = config["enable"].as<bool>(true);
     }
@@ -22,7 +22,7 @@ bool UserHistoryRecallProcessor::Init(const YAML::Node& config) {
     if (config["history_window_days"]) {
         history_window_days_ = config["history_window_days"].as<int>(30);
     }
-    return true;
+    return 0;
 }
 
 int UserHistoryRecallProcessor::Process(Session& session) {
@@ -112,11 +112,12 @@ int UserHistoryRecallProcessor::Process(Session& session) {
         count++;
     }
 
-    session.counts.recall_source_counts["user_history"] = count;
+    session.search_counts.recall_source_counts["user_history"] = count;
     return 0;
 }
 
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(UserHistoryRecallProcessor);

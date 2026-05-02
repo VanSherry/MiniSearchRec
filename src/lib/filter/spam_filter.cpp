@@ -7,11 +7,11 @@
 
 namespace minisearchrec {
 
-bool SpamFilterProcessor::Init(const YAML::Node& config) {
+int SpamFilterProcessor::Init(const YAML::Node& config) {
     if (config["spam_threshold"]) {
         spam_threshold_ = config["spam_threshold"].as<float>(0.8f);
     }
-    return true;
+    return 0;
 }
 
 bool SpamFilterProcessor::ShouldKeep(const Session& session,
@@ -47,4 +47,5 @@ bool SpamFilterProcessor::ShouldKeep(const Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(SpamFilterProcessor);

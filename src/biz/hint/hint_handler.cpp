@@ -12,6 +12,7 @@
 // ============================================================
 
 #include "biz/hint/hint_handler.h"
+#include "framework/app_context.h"
 #include "framework/config/config_manager.h"
 #include "biz/hint/hint_factory.h"
 #include "biz/hint/hint_rank_item.h"
@@ -102,14 +103,14 @@ int32_t HintBizHandler::DoSearch(framework::Session* session) const {
         return -1;
     }
 
-    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
+    auto ranker = std::shared_ptr<rank::Rank>(factory->CreateRank());
     int ret = ranker->Init(args);
     if (ret != 0) {
         LOG_ERROR("HintBizHandler::DoSearch: rank init failed, ret={}", ret);
         return -2;
     }
 
-    session->SetAny("hint_ranker", std::move(ranker));
+    session->SetAny("hint_ranker", ranker);
     return 0;
 }
 
@@ -117,7 +118,7 @@ int32_t HintBizHandler::DoSearch(framework::Session* session) const {
 // DoRank：执行 Processor 链
 // ============================================================
 int32_t HintBizHandler::DoRank(framework::Session* session) const {
-    auto* ranker_ptr = session->GetAny<std::unique_ptr<rank::Rank>>("hint_ranker");
+    auto* ranker_ptr = session->GetAny<std::shared_ptr<rank::Rank>>("hint_ranker");
     if (!ranker_ptr || !(*ranker_ptr)) {
         LOG_ERROR("HintBizHandler::DoRank: ranker not found");
         return -1;
@@ -223,4 +224,5 @@ int32_t HintBizHandler::SetResponse(framework::Session* session) const {
 } // namespace minisearchrec
 
 // 注册到框架反射表（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_HANDLER(HintBizHandler);

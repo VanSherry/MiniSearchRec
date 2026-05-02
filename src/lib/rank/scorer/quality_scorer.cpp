@@ -8,7 +8,7 @@
 
 namespace minisearchrec {
 
-bool QualityScorerProcessor::Init(const YAML::Node& config) {
+int QualityScorerProcessor::Init(const YAML::Node& config) {
     if (config["weight"]) {
         weight_ = config["weight"].as<float>(1.0f);
     }
@@ -21,7 +21,7 @@ bool QualityScorerProcessor::Init(const YAML::Node& config) {
     if (config["quality_weight"]) {
         quality_weight_ = config["quality_weight"].as<float>(0.3f);
     }
-    return true;
+    return 0;
 }
 
 int QualityScorerProcessor::Process(Session& session,
@@ -55,4 +55,5 @@ int QualityScorerProcessor::Process(Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(QualityScorerProcessor);

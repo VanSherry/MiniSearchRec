@@ -80,14 +80,14 @@ int32_t NavBizHandler::DoSearch(framework::Session* session) const {
         return -1;
     }
 
-    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
+    auto ranker = std::shared_ptr<rank::Rank>(factory->CreateRank());
     int ret = ranker->Init(args);
     if (ret != 0) {
         LOG_ERROR("NavBizHandler::DoSearch: rank init failed, ret={}", ret);
         return -2;
     }
 
-    session->SetAny("nav_ranker", std::move(ranker));
+    session->SetAny("nav_ranker", ranker);
     return 0;
 }
 
@@ -95,7 +95,7 @@ int32_t NavBizHandler::DoSearch(framework::Session* session) const {
 // DoRank：热度评分+去重+截断
 // ============================================================
 int32_t NavBizHandler::DoRank(framework::Session* session) const {
-    auto* ranker_ptr = session->GetAny<std::unique_ptr<rank::Rank>>("nav_ranker");
+    auto* ranker_ptr = session->GetAny<std::shared_ptr<rank::Rank>>("nav_ranker");
     if (!ranker_ptr || !(*ranker_ptr)) {
         LOG_ERROR("NavBizHandler::DoRank: ranker not found");
         return -1;
@@ -155,4 +155,5 @@ int32_t NavBizHandler::SetResponse(framework::Session* session) const {
 } // namespace minisearchrec
 
 // 注册到框架反射表（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_HANDLER(NavBizHandler);

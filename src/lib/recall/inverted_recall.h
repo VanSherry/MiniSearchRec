@@ -19,7 +19,7 @@ public:
 
     int Process(Session& session) override;
     std::string Name() const override { return "InvertedRecallProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     int max_recall_ = 1000;

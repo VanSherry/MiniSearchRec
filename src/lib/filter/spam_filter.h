@@ -19,7 +19,7 @@ public:
                     const DocCandidate& candidate) override;
 
     std::string Name() const override { return "SpamFilterProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float spam_threshold_ = 0.8f;

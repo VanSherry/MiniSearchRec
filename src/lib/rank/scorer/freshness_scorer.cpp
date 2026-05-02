@@ -9,7 +9,7 @@
 
 namespace minisearchrec {
 
-bool FreshnessScorerProcessor::Init(const YAML::Node& config) {
+int FreshnessScorerProcessor::Init(const YAML::Node& config) {
     if (config["weight"]) {
         weight_ = config["weight"].as<float>(1.0f);
     }
@@ -19,7 +19,7 @@ bool FreshnessScorerProcessor::Init(const YAML::Node& config) {
     if (config["decay_rate"]) {
         decay_rate_ = config["decay_rate"].as<float>(0.01f);
     }
-    return true;
+    return 0;
 }
 
 int FreshnessScorerProcessor::Process(Session& session,
@@ -52,4 +52,5 @@ int FreshnessScorerProcessor::Process(Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(FreshnessScorerProcessor);

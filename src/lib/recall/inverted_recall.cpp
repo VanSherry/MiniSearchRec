@@ -10,7 +10,7 @@
 
 namespace minisearchrec {
 
-bool InvertedRecallProcessor::Init(const YAML::Node& config) {
+int InvertedRecallProcessor::Init(const YAML::Node& config) {
     if (config["enable"]) {
         enabled_ = config["enable"].as<bool>(true);
     }
@@ -24,7 +24,7 @@ bool InvertedRecallProcessor::Init(const YAML::Node& config) {
     if (!index_) {
         LOG_WARN("InvertedRecallProcessor: InvertedIndex not ready in AppContext");
     }
-    return true;
+    return 0;
 }
 
 int InvertedRecallProcessor::Process(Session& session) {
@@ -46,7 +46,7 @@ int InvertedRecallProcessor::Process(Session& session) {
               terms.size(), index_->GetDocCount(), index_->GetTermCount());
 
     auto doc_ids = index_->Search(terms, max_recall_);
-    session.counts.recall_source_counts["inverted_index"] = doc_ids.size();
+    session.search_counts.recall_source_counts["inverted_index"] = doc_ids.size();
 
     LOG_INFO("InvertedRecall: found {} docs for query terms={}", doc_ids.size(), terms.size());
 
@@ -94,4 +94,5 @@ int InvertedRecallProcessor::Process(Session& session) {
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(InvertedRecallProcessor);

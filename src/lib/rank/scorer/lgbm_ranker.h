@@ -68,7 +68,7 @@ public:
                 std::vector<DocCandidate>& candidates) override;
 
     std::string Name() const override { return "LGBMScorerProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
     // 初始加载模型（启动时调用）
     bool LoadModel(const std::string& model_path);

@@ -20,7 +20,7 @@ public:
                     const DocCandidate& candidate) override;
 
     std::string Name() const override { return "DedupFilterProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float similarity_threshold_ = 0.9f;  // 标题相似度阈值

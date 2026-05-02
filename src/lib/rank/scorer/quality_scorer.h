@@ -20,7 +20,7 @@ public:
                 std::vector<DocCandidate>& candidates) override;
 
     std::string Name() const override { return "QualityScorerProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float click_weight_ = 0.3f;

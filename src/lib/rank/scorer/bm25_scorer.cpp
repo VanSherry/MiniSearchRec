@@ -11,7 +11,7 @@
 
 namespace minisearchrec {
 
-bool BM25ScorerProcessor::Init(const YAML::Node& config) {
+int BM25ScorerProcessor::Init(const YAML::Node& config) {
     if (config["weight"]) {
         weight_ = config["weight"].as<float>(1.0f);
     }
@@ -26,7 +26,7 @@ bool BM25ScorerProcessor::Init(const YAML::Node& config) {
     if (!index_) {
         LOG_WARN("BM25ScorerProcessor: InvertedIndex not ready in AppContext");
     }
-    return true;
+    return 0;
 }
 
 float BM25ScorerProcessor::CalculateBM25(float tf,
@@ -94,4 +94,5 @@ int BM25ScorerProcessor::Process(Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(BM25ScorerProcessor);

@@ -8,11 +8,11 @@
 
 namespace minisearchrec {
 
-bool DedupFilterProcessor::Init(const YAML::Node& config) {
+int DedupFilterProcessor::Init(const YAML::Node& config) {
     if (config["similarity_threshold"]) {
         similarity_threshold_ = config["similarity_threshold"].as<float>(0.9f);
     }
-    return true;
+    return 0;
 }
 
 // 简易字符串相似度（Jaccard 相似度基于分词）
@@ -56,4 +56,5 @@ bool DedupFilterProcessor::ShouldKeep(const Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(DedupFilterProcessor);

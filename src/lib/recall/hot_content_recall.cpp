@@ -14,7 +14,7 @@
 
 namespace minisearchrec {
 
-bool HotContentRecallProcessor::Init(const YAML::Node& config) {
+int HotContentRecallProcessor::Init(const YAML::Node& config) {
     if (config["enable"]) {
         enabled_ = config["enable"].as<bool>(true);
     }
@@ -27,7 +27,7 @@ bool HotContentRecallProcessor::Init(const YAML::Node& config) {
     if (config["refresh_interval_sec"]) {
         refresh_interval_sec_ = config["refresh_interval_sec"].as<int>(300);
     }
-    return true;
+    return 0;
 }
 
 void HotContentRecallProcessor::RefreshHotList() {
@@ -108,7 +108,7 @@ int HotContentRecallProcessor::Process(Session& session) {
     }
 
     if (snapshot.empty()) {
-        session.counts.recall_source_counts["hot_content"] = 0;
+        session.search_counts.recall_source_counts["hot_content"] = 0;
         return 0;
     }
 
@@ -132,7 +132,7 @@ int HotContentRecallProcessor::Process(Session& session) {
         count++;
     }
 
-    session.counts.recall_source_counts["hot_content"] = count;
+    session.search_counts.recall_source_counts["hot_content"] = count;
     LOG_INFO("HotContentRecallProcessor: recalled {} hot docs", count);
     return 0;
 }
@@ -140,4 +140,5 @@ int HotContentRecallProcessor::Process(Session& session) {
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(HotContentRecallProcessor);

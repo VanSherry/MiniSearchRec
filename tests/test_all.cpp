@@ -77,8 +77,8 @@ void test_session_basics() {
     session.Set("key1", "value1");
     EXPECT(session.Get("key1") == "value1", "KV Set/Get 正常");
     EXPECT(session.Get("nonexist") == "", "不存在的 key 返回空");
-    EXPECT(session.Has("key1"), "Has() 返回 true");
-    EXPECT(!session.Has("nonexist"), "Has() 不存在时返回 false");
+    EXPECT(session.Get("key1") != "", "Has() 返回 true");
+    EXPECT(session.Get("nonexist") == "", "Has() 不存在时返回 false");
 
     // Any 存储
     session.SetAny("int_val", 42);
@@ -108,23 +108,20 @@ void test_processor_registry() {
     auto& registry = framework::ProcessorRegistry::Instance();
 
     // 验证内置 Processor 已注册（通过 REGISTER_MSR_PROCESSOR 宏）
-    auto* bm25 = registry.Create("BM25ScorerProcessor");
+    auto bm25 = registry.Create("BM25ScorerProcessor");
     EXPECT(bm25 != nullptr, "BM25ScorerProcessor 可反射创建");
     if (bm25) {
         EXPECT(bm25->Name() == "BM25ScorerProcessor", "Name() 正确");
-        delete bm25;
     }
 
-    auto* freshness = registry.Create("FreshnessScorerProcessor");
+    auto freshness = registry.Create("FreshnessScorerProcessor");
     EXPECT(freshness != nullptr, "FreshnessScorerProcessor 可反射创建");
-    delete freshness;
 
-    auto* quality = registry.Create("QualityScorerProcessor");
+    auto quality = registry.Create("QualityScorerProcessor");
     EXPECT(quality != nullptr, "QualityScorerProcessor 可反射创建");
-    delete quality;
 
     // 不存在的 Processor
-    auto* nope = registry.Create("NonExistentProcessor");
+    auto nope = registry.Create("NonExistentProcessor");
     EXPECT(nope == nullptr, "不存在的 Processor 返回 nullptr");
 }
 
@@ -259,11 +256,11 @@ void test_bm25_scorer() {
     DocCandidate c1;
     c1.doc_id = "doc1";
     c1.title = "深度学习入门";
-    c1.content_length = 100;
     session.recall_results.push_back(c1);
 
     // BM25Scorer 需要 InvertedIndex，但没有设置时应安全降级
-    int ret = scorer.Process(&session);
+    framework::ProcessorInterface* proc = &scorer;
+    int ret = proc->Process(&session);
     EXPECT(ret == 0, "无 InvertedIndex 时 Process 安全返回 0");
 }
 
@@ -291,7 +288,8 @@ void test_freshness_scorer() {
     old.publish_time = now - 400 * 86400;
 
     session.recall_results = {fresh, week, month, old};
-    scorer.Process(&session);
+    framework::ProcessorInterface* freshness_proc = &scorer;
+    freshness_proc->Process(&session);
 
     auto& r = session.recall_results;
     float s0 = r[0].debug_scores.count("freshness") ? r[0].debug_scores["freshness"] : -1;
@@ -489,13 +487,13 @@ void test_search_session() {
     SECTION("SearchSession - 业务字段完整性");
 
     SearchSession session;
-    session.request.set_query("测试查询");
-    session.request.set_uid("user_001");
-    session.request.set_page(1);
-    session.request.set_page_size(20);
+    session.search_request.set_query("测试查询");
+    session.search_request.set_uid("user_001");
+    session.search_request.set_page(1);
+    session.search_request.set_page_size(20);
 
-    EXPECT(session.request.query() == "测试查询", "query 设置正确");
-    EXPECT(session.request.uid() == "user_001", "uid 设置正确");
+    EXPECT(session.search_request.query() == "测试查询", "query 设置正确");
+    EXPECT(session.search_request.uid() == "user_001", "uid 设置正确");
 
     // DocCandidate
     DocCandidate c;
@@ -606,11 +604,11 @@ void test_search_handler_e2e() {
 
     // 构造 SearchSession
     auto session = std::make_unique<SearchSession>();
-    session->request.set_query("深度学习");
-    session->request.set_uid("test_user_001");
-    session->request.set_page(1);
-    session->request.set_page_size(10);
-    session->request.set_business_type("search");
+    session->search_request.set_query("深度学习");
+    session->search_request.set_uid("test_user_001");
+    session->search_request.set_page(1);
+    session->search_request.set_page_size(10);
+    session->search_request.set_business_type("search");
 
     // 设置 deadline（不超时）
     session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -621,11 +619,11 @@ void test_search_handler_e2e() {
     EXPECT(ret >= 0 || ret == 0, "Search 主流程执行完毕（不崩溃）");
 
     // 验证 response 被填充
-    EXPECT(!session->response.empty() || session->response_code >= 0,
+    EXPECT(session->response.ret >= 0,
            "Search 产生了响应");
 
     // 验证各阶段耗时已记录
-    EXPECT(session->timing.total_ms >= 0, "总耗时已记录");
+    EXPECT(session->metrics.total_cost_us >= 0, "总耗时已记录");
 }
 
 // ============================================================
@@ -640,8 +638,8 @@ void test_search_can_search() {
 
     // 空 query 应该被拒绝
     auto session_empty = std::make_unique<SearchSession>();
-    session_empty->request.set_query("");
-    session_empty->request.set_business_type("search");
+    session_empty->search_request.set_query("");
+    session_empty->search_request.set_business_type("search");
     session_empty->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -663,9 +661,9 @@ void test_sug_handler() {
 
     // Sug 请求
     auto session = std::make_unique<SearchSession>();
-    session->request.set_query("深度");
-    session->request.set_uid("test_user_002");
-    session->request.set_business_type("sug");
+    session->search_request.set_query("深度");
+    session->search_request.set_uid("test_user_002");
+    session->search_request.set_business_type("sug");
     session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -674,8 +672,8 @@ void test_sug_handler() {
 
     // 空 query 也应安全处理（sug 允许空前缀？取决于实现）
     auto session2 = std::make_unique<SearchSession>();
-    session2->request.set_query("");
-    session2->request.set_business_type("sug");
+    session2->search_request.set_query("");
+    session2->search_request.set_business_type("sug");
     session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -707,10 +705,10 @@ void test_hint_handler() {
 
     // Hint 请求需要 doc_id
     auto session = std::make_unique<SearchSession>();
-    session->request.set_query("");
-    session->request.set_uid("test_user_003");
-    session->request.set_business_type("hint");
-    session->request.mutable_extra()->insert({"doc_id", "doc_001"});
+    session->search_request.set_query("");
+    session->search_request.set_uid("test_user_003");
+    session->search_request.set_business_type("hint");
+    session->search_request.mutable_params()->insert({"doc_id", "doc_001"});
     session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -719,8 +717,8 @@ void test_hint_handler() {
 
     // 无 doc_id 时应被 CanSearch 拒绝（不崩溃）
     auto session2 = std::make_unique<SearchSession>();
-    session2->request.set_query("");
-    session2->request.set_business_type("hint");
+    session2->search_request.set_query("");
+    session2->search_request.set_business_type("hint");
     session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -741,9 +739,9 @@ void test_nav_handler() {
 
     // Nav 允许空 query（搜前引导不需要 query）
     auto session = std::make_unique<SearchSession>();
-    session->request.set_query("");
-    session->request.set_uid("test_user_004");
-    session->request.set_business_type("nav");
+    session->search_request.set_query("");
+    session->search_request.set_uid("test_user_004");
+    session->search_request.set_business_type("nav");
     session->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -752,8 +750,8 @@ void test_nav_handler() {
 
     // 带 query 也不应崩溃
     auto session2 = std::make_unique<SearchSession>();
-    session2->request.set_query("热门");
-    session2->request.set_business_type("nav");
+    session2->search_request.set_query("热门");
+    session2->search_request.set_business_type("nav");
     session2->deadline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 5000;
 
@@ -768,7 +766,7 @@ void test_pipeline_manager_scan() {
     SECTION("PipelineManager - 自动扫描 biz/*.yaml");
 
     // PipelineManager 在 main 中初始化，这里测试它能正确加载配置目录
-    framework::PipelineManager pm;
+    auto& pm = framework::PipelineManager::Instance();
     bool ok = pm.Init("./config");
 
     // 如果 config/biz/ 目录存在且有 yaml 文件，应加载成功
@@ -801,7 +799,7 @@ void test_pipeline_manager_scan() {
 void test_handler_manager_config() {
     SECTION("HandlerManager - 配置驱动注册");
 
-    framework::HandlerManager hm;
+    auto& hm = framework::HandlerManager::Instance();
     int32_t ret = hm.InitFromConfig("./config/framework.yaml");
     EXPECT(ret == 0, "InitFromConfig 成功");
 

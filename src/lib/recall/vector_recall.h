@@ -19,7 +19,7 @@ public:
 
     int Process(Session& session) override;
     std::string Name() const override { return "VectorRecallProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
     void SetVectorIndex(std::shared_ptr<VectorIndex> idx) {
         vec_idx_ = idx;

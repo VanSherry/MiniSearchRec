@@ -46,7 +46,7 @@ BoosterPtr LGBMScorerProcessor::LoadBoosterFromFile(
 // ============================================================
 // Init：启动时调用，初始化权重并加载初始模型
 // ============================================================
-bool LGBMScorerProcessor::Init(const YAML::Node& config) {
+int LGBMScorerProcessor::Init(const YAML::Node& config) {
     if (config["weight"]) {
         weight_ = config["weight"].as<float>(1.0f);
         weight_cached_ = weight_;
@@ -60,7 +60,7 @@ bool LGBMScorerProcessor::Init(const YAML::Node& config) {
             }
         }
     }
-    return true;
+    return 0;
 }
 
 // ============================================================
@@ -289,4 +289,5 @@ int LGBMScorerProcessor::Process(Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(LGBMScorerProcessor);

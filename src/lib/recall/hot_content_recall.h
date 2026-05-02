@@ -34,7 +34,7 @@ public:
 
     int Process(Session& session) override;
     std::string Name() const override { return "HotContentRecallProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
     // 刷新热榜缓存（可由定时线程调用）
     void RefreshHotList();

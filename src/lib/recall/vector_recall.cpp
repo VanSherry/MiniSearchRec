@@ -9,7 +9,7 @@
 
 namespace minisearchrec {
 
-bool VectorRecallProcessor::Init(const YAML::Node& config) {
+int VectorRecallProcessor::Init(const YAML::Node& config) {
     if (config["enable"]) {
         enabled_ = config["enable"].as<bool>(false);  // 默认关闭，V1 开启
     }
@@ -63,11 +63,12 @@ int VectorRecallProcessor::Process(Session& session) {
         }
     }
 
-    session.counts.recall_source_counts["vector"] = count;
+    session.search_counts.recall_source_counts["vector"] = count;
     return 0;
 }
 
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(VectorRecallProcessor);

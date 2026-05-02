@@ -6,7 +6,7 @@
 
 namespace minisearchrec {
 
-bool QualityFilterProcessor::Init(const YAML::Node& config) {
+int QualityFilterProcessor::Init(const YAML::Node& config) {
     if (config["min_quality_score"]) {
         min_quality_score_ = config["min_quality_score"].as<float>(0.3f);
     }
@@ -16,7 +16,7 @@ bool QualityFilterProcessor::Init(const YAML::Node& config) {
     if (config["min_content_length"]) {
         min_content_length_ = config["min_content_length"].as<int32_t>(50);
     }
-    return true;
+    return 0;
 }
 
 bool QualityFilterProcessor::ShouldKeep(const Session& session,
@@ -39,4 +39,5 @@ bool QualityFilterProcessor::ShouldKeep(const Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(QualityFilterProcessor);

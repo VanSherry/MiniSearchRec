@@ -21,7 +21,7 @@ public:
                 std::vector<DocCandidate>& candidates) override;
 
     std::string Name() const override { return "MMRRerankProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float lambda_ = 0.7f;       // 相关性 vs 多样性权衡（0.7偏相关性）

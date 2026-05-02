@@ -20,7 +20,7 @@ public:
                     const DocCandidate& candidate) override;
 
     std::string Name() const override { return "QualityFilterProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     float min_quality_score_ = 0.3f;

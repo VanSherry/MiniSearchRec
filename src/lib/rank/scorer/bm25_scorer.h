@@ -22,7 +22,7 @@ public:
                 std::vector<DocCandidate>& candidates) override;
 
     std::string Name() const override { return "BM25ScorerProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
     // BM25 打分（静态方法，便于单元测试）
     static float CalculateBM25(float tf,

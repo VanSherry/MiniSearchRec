@@ -10,7 +10,7 @@
 
 namespace minisearchrec {
 
-bool MMRRerankProcessor::Init(const YAML::Node& config) {
+int MMRRerankProcessor::Init(const YAML::Node& config) {
     if (config["lambda"]) {
         lambda_ = config["lambda"].as<float>(0.7f);
     }
@@ -20,7 +20,7 @@ bool MMRRerankProcessor::Init(const YAML::Node& config) {
     if (config["max_candidates"]) {
         max_candidates_ = config["max_candidates"].as<int>(100);
     }
-    return true;
+    return 0;
 }
 
 float MMRRerankProcessor::CalcSimilarity(const DocCandidate& a,
@@ -173,4 +173,5 @@ int MMRRerankProcessor::Process(Session& session,
 } // namespace minisearchrec
 
 // 自动注册到框架 ProcessorRegistry（配置驱动创建）
+using namespace minisearchrec;
 REGISTER_MSR_PROCESSOR(MMRRerankProcessor);

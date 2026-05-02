@@ -20,7 +20,7 @@ public:
                     const DocCandidate& candidate) override;
 
     std::string Name() const override { return "BlacklistFilterProcessor"; }
-    bool Init(const YAML::Node& config) override;
+    int Init(const YAML::Node& config) override;
 
 private:
     std::unordered_set<std::string> blacklist_ids_;
