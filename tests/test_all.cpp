@@ -14,6 +14,7 @@
 #include <chrono>
 #include <atomic>
 #include <cstdlib>
+#include <sys/stat.h>
 #include <unordered_set>
 #include <yaml-cpp/yaml.h>
 
@@ -56,6 +57,19 @@ static std::string g_project_root = ".";
 
 static std::string ProjectPath(const std::string& rel) {
     return g_project_root + "/" + rel;
+}
+
+// 自动探测项目根目录
+static void DetectProjectRoot() {
+    // 优先级：命令行参数 > 环境变量 > 自动探测
+    auto exists = [](const std::string& path) {
+        struct stat st;
+        return stat(path.c_str(), &st) == 0;
+    };
+
+    if (exists(g_project_root + "/config/framework.yaml")) return;  // 已正确
+    if (exists("../config/framework.yaml")) { g_project_root = ".."; return; }
+    if (exists("../../config/framework.yaml")) { g_project_root = "../.."; return; }
 }
 
 // ── 轻量断言宏 ──
@@ -184,11 +198,13 @@ void test_inverted_index() {
     auto results = idx.Search({"深"}, 100);
     EXPECT(!results.empty(), "搜索'深'有结果");
 
-    // IDF（"学" 出现在 doc1+doc2 两篇，"烹" 只出现在 doc3 一篇）
-    float idf_common = idx.CalculateIDF("学");
-    float idf_rare = idx.CalculateIDF("烹");
+    // IDF（BM25 变体：log((N-df+0.5)/(df+0.5))）
+    // "烹" 只在 doc3 一篇中出现，df=1, N=3 → log(2.5/1.5) > 0
+    // "学" 在 doc1+doc2 两篇中出现，df=2, N=3 → log(1.5/2.5) < 0（会被 clamp 到 0）
+    float idf_rare = idx.CalculateIDF("烹");    // df=1 → IDF > 0
+    float idf_common = idx.CalculateIDF("学");  // df=2 → IDF ≈ 0（BM25 IDF 特性）
     EXPECT(idf_rare > idf_common, "罕见字 IDF 更高");
-    EXPECT(idf_common > 0.0f, "IDF > 0");
+    EXPECT(idf_rare > 0.0f, "只出现在 1 篇文档的字 IDF > 0");
 
     // 平均文档长度
     float avg = idx.GetAvgDocLen();
@@ -855,6 +871,8 @@ int main(int argc, char* argv[]) {
         if (env) g_project_root = env;
     }
     std::cout << "Project root: " << g_project_root << std::endl;
+    DetectProjectRoot();
+    std::cout << "Resolved root: " << g_project_root << std::endl;
 
     std::cout << R"(
 ====================================================
