@@ -350,7 +350,7 @@ footer a{font-weight:600}
 <section class="sec loop-section" id="loop" style="max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
   <div class="sec-head">
     <h2><span class="bar"></span>用户交互闭环</h2>
-    <p>Nav → Search → Hint → Search 探索式闭环 &nbsp;|&nbsp; Sug → Search 目标式闭环 &nbsp;|&nbsp; 每次交互产生 5 路数据反哺</p>
+    <p>参考微信搜一搜交互模式 &nbsp;|&nbsp; Hint 仅在点击文档返回后出现 &nbsp;|&nbsp; 每次交互产生 5 路数据反哺</p>
   </div>
   <div class="loop-track" style="max-width:1080px">
     <div class="loop-node">
@@ -369,27 +369,27 @@ footer a{font-weight:600}
     <div class="loop-arrow">→</div>
     <div class="loop-node">
       <span class="nd-icon">🔍</span>
-      <h4>发起搜索</h4>
-      <p>4 路召回 → 粗排<br>→ 精排 → 过滤<br>→ MMR 多样性</p>
+      <h4>搜索结果页</h4>
+      <p>约 20 条结果 Box<br>4路召回 → 排序 → 过滤<br><b>首次无 Hint</b></p>
       <span class="nd-api">POST /search</span>
     </div>
     <div class="loop-arrow">→</div>
     <div class="loop-node">
       <span class="nd-icon">👆</span>
       <h4>点击文档</h4>
-      <p>行为上报<br>5 路数据写入<br>画像实时更新</p>
+      <p>上报 click 事件<br>进入文档详情页<br>携带 doc_id</p>
       <span class="nd-api">POST /event/click</span>
     </div>
     <div class="loop-arrow">→</div>
     <div class="loop-node">
-      <span class="nd-icon">💡</span>
-      <h4>相关搜索</h4>
-      <p>Hint 穿插结果页<br>标签匹配 + 行为共现<br>引导二次搜索</p>
+      <span class="nd-icon">↩️</span>
+      <h4>返回结果页</h4>
+      <p>点击的 Box 下方<br>出现 Hint「大家都在搜」<br>动态适配展示条数</p>
       <span class="nd-api">GET /hint?doc_id=...</span>
     </div>
     <div class="loop-arrow" style="font-size:1.1rem;">↩ Search</div>
   </div>
-  <p class="loop-note">用户点击 Nav 热词或 Sug 建议词 → 触发 Search → 点击文档 → 触发 Hint → 点击 Hint 词条 → <b>再次 Search</b>（循环）</p>
+  <p class="loop-note">点击 Hint 词条 → 以新 query <b>重新搜索</b>（回到首次状态，无 Hint）→ 点击文档 → 返回 → 再出现 Hint（循环）</p>
 </section>
 
 <!-- ═══════ Architecture ═══════ -->
@@ -416,7 +416,7 @@ footer a{font-weight:600}
           <div class="arch-chip hl">Search 垂搜</div>
           <div class="arch-chip hl">Sug 搜索建议</div>
           <div class="arch-chip hl">Hint 点后推</div>
-          <div class="arch-chip hl">Nav 搜前引导</div>
+          <div class="arch-chip hl">Nav 教育页</div>
           <div class="arch-chip">Doc 文档管理</div>
           <div class="arch-chip">Event 事件接入</div>
         </div>
@@ -497,19 +497,19 @@ footer a{font-weight:600}
     </div>
 
     <div class="biz-card">
-      <div class="biz-title"><div class="icon" style="background:#8b5cf6">📎</div><h3>Hint 点后推荐</h3></div>
-      <div class="desc">点击文档后，基于行为共现推荐相关内容</div>
+      <div class="biz-title"><div class="icon" style="background:#8b5cf6">📎</div><h3>Hint 点后推荐（大家都在搜）</h3></div>
+      <div class="desc">用户点击文档返回后，在点击的 Box 下方展示相关搜索词</div>
       <div class="steps">
-        <div class="step"><div class="txt"><b>CanSearch</b> — doc_id 必填（点后推源文档）</div></div>
-        <div class="step"><div class="txt"><b>DoSearch</b> — 共现 + 同类目 + 同作者 + 向量相似</div></div>
+        <div class="step"><div class="txt"><b>CanSearch</b> — doc_id 必填（用户刚点击的文档）</div></div>
+        <div class="step"><div class="txt"><b>DoSearch</b> — 标签匹配 + 行为共现 + 分类热词 + 查询扩展</div></div>
         <div class="step"><div class="txt"><b>DoRank</b> — 共现强度 × 时效衰减 + 截断</div></div>
-        <div class="step"><div class="txt"><b>Interpose</b> — 已读过滤 + 同源去重</div></div>
-        <div class="step"><div class="txt"><b>Response</b> — JSON 输出</div></div>
+        <div class="step"><div class="txt"><b>Interpose</b> — 过滤与当前 query 相同的词 + 去重</div></div>
+        <div class="step"><div class="txt"><b>Response</b> — 根据页面布局动态适配展示条数</div></div>
       </div>
     </div>
 
     <div class="biz-card">
-      <div class="biz-title"><div class="icon" style="background:#f59e0b">🏠</div><h3>Nav 搜前引导</h3></div>
+      <div class="biz-title"><div class="icon" style="background:#f59e0b">🏠</div><h3>Nav 教育页</h3></div>
       <div class="desc">搜索框下方热词，无需 query，个性化引导搜索</div>
       <div class="steps">
         <div class="step"><div class="txt"><b>CanSearch</b> — 允许空 query</div></div>
@@ -797,13 +797,13 @@ postprocess_stages:
         <tr>
           <td><span class="api-path">/api/v1/hint</span></td>
           <td><span class="method get">GET</span></td>
-          <td>相关搜索（点后推）</td>
-          <td>doc_id, query（可选）</td>
+          <td>点后推荐（点击文档返回后展示「大家都在搜」）</td>
+          <td>doc_id（必填）, query（可选）</td>
         </tr>
         <tr>
           <td><span class="api-path">/api/v1/nav</span></td>
           <td><span class="method get">GET</span></td>
-          <td>搜前引导（热词推荐）</td>
+          <td>教育页（搜前热词引导）</td>
           <td>uid（可选，个性化）</td>
         </tr>
         <tr>
