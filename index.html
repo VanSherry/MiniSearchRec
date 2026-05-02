@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MiniSearchRec</title>
+<title>MiniSearchRec — 生产级 C++17 搜索推荐引擎</title>
+<meta name="description" content="配置驱动·框架优先·零改代码扩展业务。完整展示现代搜索系统 Nav→Sug→Search→Hint 交互闭环。">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -81,6 +82,120 @@ code{font-family:'JetBrains Mono',monospace;font-size:.82em;background:#f2f4f7;p
 .stat-box{text-align:center}
 .stat-box .val{font-size:2rem;font-weight:800;color:var(--g1)}
 .stat-box .lbl{font-size:.78rem;color:var(--text3);margin-top:2px}
+
+/* ═══ Loop ═══ */
+.loop-section{background:#f0fdf4;border-top:1px solid #d1fae5;border-bottom:1px solid #d1fae5}
+.loop-track{display:flex;gap:0;align-items:stretch;overflow-x:auto;padding:8px 0;scroll-snap-type:x mandatory}
+.loop-node{
+  flex:0 0 180px;scroll-snap-align:center;text-align:center;
+  padding:24px 16px;position:relative;
+  background:#fff;border:1.5px solid var(--border);border-radius:14px;
+  transition:all .25s;
+}
+.loop-node:hover{border-color:var(--g1);box-shadow:0 8px 24px var(--g-glow);transform:translateY(-4px)}
+.loop-node .nd-icon{font-size:2rem;margin-bottom:8px;display:block}
+.loop-node h4{font-size:.88rem;font-weight:700;margin-bottom:4px}
+.loop-node p{font-size:.72rem;color:var(--text2);line-height:1.5}
+.loop-node .nd-api{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--g1);margin-top:8px;display:block}
+.loop-arrow{
+  flex:0 0 36px;display:flex;align-items:center;justify-content:center;
+  font-size:1.4rem;color:var(--g1);font-weight:700;
+}
+.loop-note{text-align:center;margin-top:20px;font-size:.82rem;color:var(--text2)}
+.loop-note b{color:var(--g1)}
+
+/* ═══ Pipeline ═══ */
+.pipeline-box{
+  background:#fff;border:1px solid var(--border);border-radius:var(--r);
+  padding:0;overflow:hidden;
+}
+.pipeline-box .pipe-hdr{
+  background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;
+  padding:14px 24px;font-size:.88rem;font-weight:700;
+}
+.pipe-stages{padding:24px}
+.pipe-stage{
+  display:flex;align-items:flex-start;gap:14px;padding:10px 0;
+  position:relative;
+}
+.pipe-stage::after{
+  content:'';position:absolute;left:15px;top:34px;bottom:-10px;width:1.5px;
+  background:linear-gradient(var(--border),transparent);
+}
+.pipe-stage:last-child::after{display:none}
+.pipe-dot{
+  width:30px;height:30px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:.7rem;font-weight:700;color:#fff;
+}
+.pipe-info{flex:1}
+.pipe-info .pipe-name{font-size:.85rem;font-weight:700;color:var(--text)}
+.pipe-info .pipe-desc{font-size:.76rem;color:var(--text2);margin-top:2px}
+.pipe-info .pipe-procs{
+  display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;
+}
+.pipe-proc{
+  display:inline-block;padding:3px 10px;border-radius:6px;
+  font-size:.7rem;font-weight:500;
+  background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;
+}
+.pipe-proc.recall{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+.pipe-proc.rank{background:#fef3c7;border-color:#fcd34d;color:#92400e}
+.pipe-proc.filter{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.pipe-proc.post{background:#f5f3ff;border-color:#ddd6fe;color:#5b21b6}
+
+/* ═══ Flywheel ═══ */
+.flywheel-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+@media(max-width:820px){.flywheel-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:520px){.flywheel-grid{grid-template-columns:1fr 1fr}}
+.fw-card{
+  background:#fff;border:1px solid var(--border);border-radius:12px;
+  padding:20px 16px;text-align:center;transition:all .25s;
+}
+.fw-card:hover{border-color:var(--g1);box-shadow:0 6px 20px var(--g-glow)}
+.fw-card .fw-icon{font-size:1.6rem;margin-bottom:8px;display:block}
+.fw-card h4{font-size:.82rem;font-weight:700;margin-bottom:4px}
+.fw-card p{font-size:.7rem;color:var(--text2);line-height:1.5}
+.fw-arrow-row{
+  display:flex;align-items:center;justify-content:center;
+  padding:12px 0;color:var(--g1);font-size:1.2rem;font-weight:700;
+}
+
+/* ═══ Tech ═══ */
+.tech-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.tech-row{
+  display:flex;align-items:center;gap:12px;
+  padding:14px 18px;background:#fff;
+  border:1px solid var(--border);border-radius:10px;
+  transition:border-color .2s;
+}
+.tech-row:hover{border-color:var(--g1)}
+.tech-row .tname{font-weight:600;font-size:.88rem;flex:1}
+.tech-row .tdesc{font-size:.76rem;color:var(--text2);flex:2}
+.tech-badge{
+  padding:3px 10px;border-radius:20px;font-size:.65rem;font-weight:700;flex-shrink:0;
+}
+.tech-badge.req{background:#dcfce7;color:#166534}
+.tech-badge.opt{background:#fef9c3;color:#854d0e}
+
+/* ═══ API Table ═══ */
+.api-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.api-table th{
+  text-align:left;padding:12px 16px;background:var(--bg2);
+  border-bottom:2px solid var(--g1);font-weight:700;font-size:.8rem;
+  color:var(--text2);text-transform:uppercase;letter-spacing:.03em;
+}
+.api-table td{padding:12px 16px;border-bottom:1px solid var(--border)}
+.api-table tr:hover td{background:#f0fdf4}
+.api-table .method{
+  display:inline-block;padding:2px 10px;border-radius:6px;
+  font-size:.72rem;font-weight:700;font-family:'JetBrains Mono',monospace;
+}
+.method.get{background:#dbeafe;color:#1d4ed8}
+.method.post{background:#dcfce7;color:#166534}
+.method.put{background:#fef9c3;color:#854d0e}
+.method.del{background:#fef2f2;color:#991b1b}
+.api-path{font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--g1);font-weight:500}
 
 /* ═══ Section ═══ */
 .sec{max-width:1080px;margin:0 auto;padding:80px 24px}
@@ -231,6 +346,52 @@ footer a{font-weight:600}
   </div>
 </section>
 
+<!-- ═══════ User Loop ═══════ -->
+<section class="sec loop-section" id="loop" style="max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
+  <div class="sec-head">
+    <h2><span class="bar"></span>用户交互闭环</h2>
+    <p>Nav → Search → Hint → Search 探索式闭环 &nbsp;|&nbsp; Sug → Search 目标式闭环 &nbsp;|&nbsp; 每次交互产生 5 路数据反哺</p>
+  </div>
+  <div class="loop-track" style="max-width:1080px">
+    <div class="loop-node">
+      <span class="nd-icon">📱</span>
+      <h4>打开搜索框</h4>
+      <p>Nav 展示热门词条<br>全局热词 + 个人历史<br>冷启动预置词兜底</p>
+      <span class="nd-api">GET /nav</span>
+    </div>
+    <div class="loop-arrow">→</div>
+    <div class="loop-node">
+      <span class="nd-icon">⌨️</span>
+      <h4>输入前缀</h4>
+      <p>Sug 下拉联想<br>Trie 前缀匹配<br>文档标题+标签+历史词</p>
+      <span class="nd-api">GET /sug?q=...</span>
+    </div>
+    <div class="loop-arrow">→</div>
+    <div class="loop-node">
+      <span class="nd-icon">🔍</span>
+      <h4>发起搜索</h4>
+      <p>4 路召回 → 粗排<br>→ 精排 → 过滤<br>→ MMR 多样性</p>
+      <span class="nd-api">POST /search</span>
+    </div>
+    <div class="loop-arrow">→</div>
+    <div class="loop-node">
+      <span class="nd-icon">👆</span>
+      <h4>点击文档</h4>
+      <p>行为上报<br>5 路数据写入<br>画像实时更新</p>
+      <span class="nd-api">POST /event/click</span>
+    </div>
+    <div class="loop-arrow">→</div>
+    <div class="loop-node">
+      <span class="nd-icon">💡</span>
+      <h4>相关搜索</h4>
+      <p>Hint 穿插结果页<br>标签匹配 + 行为共现<br>引导二次搜索</p>
+      <span class="nd-api">GET /hint?doc_id=...</span>
+    </div>
+    <div class="loop-arrow" style="font-size:1.1rem;">↩ Search</div>
+  </div>
+  <p class="loop-note">用户点击 Nav 热词或 Sug 建议词 → 触发 Search → 点击文档 → 触发 Hint → 点击 Hint 词条 → <b>再次 Search</b>（循环）</p>
+</section>
+
 <!-- ═══════ Architecture ═══════ -->
 <section class="sec" id="arch">
   <div class="sec-head">
@@ -360,6 +521,142 @@ footer a{font-weight:600}
   </div>
 </section>
 
+<!-- ═══════ Search Pipeline Detail ═══════ -->
+<section class="sec" id="pipeline">
+  <div class="sec-head">
+    <h2><span class="bar"></span>搜索主流程 Pipeline</h2>
+    <p>Template Method 8 阶段骨架，每个 Processor 由 YAML 配置驱动反射创建，按序执行。</p>
+  </div>
+  <div class="pipeline-box">
+    <div class="pipe-hdr">BaseHandler::Search(session) — 8 阶段 Pipeline</div>
+    <div class="pipe-stages">
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#64748b">0</div>
+        <div class="pipe-info">
+          <div class="pipe-name">InitSession</div>
+          <div class="pipe-desc">初始化 Session · 生成 TraceID · 设置超时 deadline</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#64748b">1</div>
+        <div class="pipe-info">
+          <div class="pipe-name">CanSearch</div>
+          <div class="pipe-desc">准入检查 + InterposeCheckQuery（query 级封禁词）</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#3b82f6">2</div>
+        <div class="pipe-info">
+          <div class="pipe-name">PreSearch — 查询理解</div>
+          <div class="pipe-desc">QueryParser::Parse() → 归一化 → 分词 → 同义词扩展 → 类别推断 → Embedding</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:var(--g1)">3</div>
+        <div class="pipe-info">
+          <div class="pipe-name">DoSearch — 4 路召回</div>
+          <div class="pipe-desc">recall_pipeline.Execute()，每路独立 Processor，结果 append 到 recall_results</div>
+          <div class="pipe-procs">
+            <span class="pipe-proc recall">InvertedRecall (1000)</span>
+            <span class="pipe-proc recall">VectorRecall (200)</span>
+            <span class="pipe-proc recall">UserHistoryRecall</span>
+            <span class="pipe-proc recall">HotContentRecall</span>
+          </div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#eab308">4</div>
+        <div class="pipe-info">
+          <div class="pipe-name">DoRank — 粗排（3 打分器加权融合）</div>
+          <div class="pipe-desc">rank_pipeline.Execute() → sort by coarse_score → truncate top-500</div>
+          <div class="pipe-procs">
+            <span class="pipe-proc rank">BM25 (w=0.6)</span>
+            <span class="pipe-proc rank">Quality (w=0.2)</span>
+            <span class="pipe-proc rank">Freshness (w=0.2)</span>
+          </div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#f97316">5</div>
+        <div class="pipe-info">
+          <div class="pipe-name">DoRerank — 精排</div>
+          <div class="pipe-desc">rerank_pipeline.Execute() → 10 维特征 → LightGBM / 内置决策树 → top-100</div>
+          <div class="pipe-procs">
+            <span class="pipe-proc rank">LGBMScorer (w=0.8)</span>
+          </div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#ef4444">6</div>
+        <div class="pipe-info">
+          <div class="pipe-name">DoInterpose — 过滤 + 后处理</div>
+          <div class="pipe-desc">filter_pipeline → postprocess_pipeline → final_results</div>
+          <div class="pipe-procs">
+            <span class="pipe-proc filter">Dedup (Jaccard≥0.9)</span>
+            <span class="pipe-proc filter">Quality</span>
+            <span class="pipe-proc filter">Spam</span>
+            <span class="pipe-proc filter">Blacklist</span>
+            <span class="pipe-proc post">MMR (λ=0.7 → top-20)</span>
+          </div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#8b5cf6">7</div>
+        <div class="pipe-info">
+          <div class="pipe-name">SetResponse</div>
+          <div class="pipe-desc">分页截取 + JSON 序列化（doc_id, title, snippet, score, debug_scores）</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#64748b">8</div>
+        <div class="pipe-info">
+          <div class="pipe-name">ReportFinal</div>
+          <div class="pipe-desc">ScopeGuard 保证执行 · 各阶段耗时日志 · 干预记录上报</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Data Flywheel ═══════ -->
+<section class="sec" id="flywheel" style="background:var(--bg2);max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
+  <div class="sec-head">
+    <h2><span class="bar"></span>数据飞轮</h2>
+    <p>每次用户交互产生 5 路数据写入，后台定时任务持续反哺各业务，搜索效果自动提升。</p>
+  </div>
+  <div class="flywheel-grid" style="max-width:1080px">
+    <div class="fw-card">
+      <span class="fw-icon">🗃️</span>
+      <h4>EventDB</h4>
+      <p>特征快照存储<br>→ 训练样本导出<br>→ LGBM 模型训练</p>
+    </div>
+    <div class="fw-card">
+      <span class="fw-icon">👤</span>
+      <h4>UserProfile</h4>
+      <p>EMA 兴趣向量<br>→ 类别权重更新<br>→ 个性化召回+精排</p>
+    </div>
+    <div class="fw-card">
+      <span class="fw-icon">📊</span>
+      <h4>QueryStats</h4>
+      <p>搜索词频累积<br>→ Trie 重建(1h)<br>→ Sug 更精准</p>
+    </div>
+    <div class="fw-card">
+      <span class="fw-icon">🔗</span>
+      <h4>DocCooccur</h4>
+      <p>行为共现记录<br>→ A点击→B点击<br>→ Hint 推荐更强</p>
+    </div>
+    <div class="fw-card">
+      <span class="fw-icon">🔥</span>
+      <h4>Nav History</h4>
+      <p>用户搜索历史<br>→ Nav 个性化<br>→ 引导词更精准</p>
+    </div>
+  </div>
+  <div class="fw-arrow-row">↓ &nbsp; 后台调度器 (AutoTrain 24h · IndexRebuild 12h · TrieRebuild 1h) &nbsp; ↓</div>
+  <p style="text-align:center;font-size:.85rem;color:var(--text2);max-width:1080px">
+    数据写入 → 后台训练/重建 → 模型双 Buffer 热更新 → 下次搜索效果提升 → 更多点击 → <b style="color:var(--g1)">循环</b>
+  </p>
+</section>
+
 <!-- ═══════ Config ═══════ -->
 <section class="sec" id="config" style="background:var(--bg2);max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
   <div class="sec-head">
@@ -455,10 +752,117 @@ postprocess_stages:
   </div>
 </section>
 
+<!-- ═══════ Tech Stack ═══════ -->
+<section class="sec" id="tech">
+  <div class="sec-head">
+    <h2><span class="bar"></span>技术栈</h2>
+    <p>必需依赖精简，可选组件优雅降级。无 ONNX 时用伪向量，无 LightGBM 时用规则树，无 Faiss 时暴力搜索。</p>
+  </div>
+  <div class="tech-list">
+    <div class="tech-row"><span class="tname">yaml-cpp</span><span class="tdesc">配置解析</span><span class="tech-badge req">必需</span></div>
+    <div class="tech-row"><span class="tname">Protobuf</span><span class="tdesc">数据序列化</span><span class="tech-badge req">必需</span></div>
+    <div class="tech-row"><span class="tname">jsoncpp</span><span class="tdesc">JSON API 响应</span><span class="tech-badge req">必需</span></div>
+    <div class="tech-row"><span class="tname">SQLite3</span><span class="tdesc">文档 + 统计存储</span><span class="tech-badge req">必需</span></div>
+    <div class="tech-row"><span class="tname">ONNX Runtime</span><span class="tdesc">Embedding 推理 (bge-base-zh)</span><span class="tech-badge opt">可选</span></div>
+    <div class="tech-row"><span class="tname">LightGBM</span><span class="tdesc">精排模型 (C API)</span><span class="tech-badge opt">可选</span></div>
+    <div class="tech-row"><span class="tname">Faiss</span><span class="tdesc">向量近似搜索 (HNSW)</span><span class="tech-badge opt">可选</span></div>
+    <div class="tech-row"><span class="tname">spdlog</span><span class="tdesc">结构化日志</span><span class="tech-badge opt">可选</span></div>
+  </div>
+</section>
+
+<!-- ═══════ API ═══════ -->
+<section class="sec" id="api" style="background:var(--bg2);max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
+  <div class="sec-head">
+    <h2><span class="bar"></span>API 接口</h2>
+    <p>RESTful HTTP 接口，JSON 请求/响应。</p>
+  </div>
+  <div style="max-width:1080px;overflow-x:auto">
+    <table class="api-table">
+      <thead>
+        <tr><th>接口</th><th>方法</th><th>说明</th><th>关键参数</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="api-path">/api/v1/search</span></td>
+          <td><span class="method post">POST</span></td>
+          <td>全文搜索</td>
+          <td>query, uid, page, page_size</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/sug</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>搜索建议（下拉联想）</td>
+          <td>q（前缀）</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/hint</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>相关搜索（点后推）</td>
+          <td>doc_id, query（可选）</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/nav</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>搜前引导（热词推荐）</td>
+          <td>uid（可选，个性化）</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/doc/add</span></td>
+          <td><span class="method post">POST</span></td>
+          <td>添加文档（同时建索引）</td>
+          <td>doc_id, title, content, category</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/doc/update</span></td>
+          <td><span class="method put">PUT</span></td>
+          <td>更新文档</td>
+          <td>doc_id + 更新字段</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/doc/delete</span></td>
+          <td><span class="method del">DEL</span></td>
+          <td>删除文档</td>
+          <td>doc_id</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/event/click</span></td>
+          <td><span class="method post">POST</span></td>
+          <td>上报点击事件（含特征快照）</td>
+          <td>uid, doc_id, query, result_pos</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/event/like</span></td>
+          <td><span class="method post">POST</span></td>
+          <td>上报点赞事件</td>
+          <td>uid, doc_id</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/admin/reload_model</span></td>
+          <td><span class="method post">POST</span></td>
+          <td>精排模型热更新</td>
+          <td>model_path</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/health</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>健康检查 + 索引统计</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <!-- ═══════ Footer ═══════ -->
 <footer>
-  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 框架驱动 &nbsp;·&nbsp; 配置优先 &nbsp;·&nbsp; MIT</p>
-  <p style="margin-top:8px"><a href="https://github.com/VanSherry/MiniSearchRec">GitHub →</a></p>
+  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 153 源文件 · 16,600+ 行 C++17 · 117 测试全通过 &nbsp;·&nbsp; MIT License</p>
+  <p style="margin-top:12px">
+    <a href="https://github.com/VanSherry/MiniSearchRec">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/VanSherry/MiniSearchRec/issues">Issues</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/VanSherry">@VanSherry</a>
+  </p>
 </footer>
 
 </body>
