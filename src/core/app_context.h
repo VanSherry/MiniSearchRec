@@ -33,12 +33,14 @@ public:
                     const std::string& index_dir,
                     bool rebuild_on_start = false);
 
-    // --- 索引访问器 ---
+    // --- 索引访问器（线程安全）---
     std::shared_ptr<InvertedIndex> GetInvertedIndex() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return inverted_index_;
     }
 
     std::shared_ptr<VectorIndex> GetVectorIndex() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return vector_index_;
     }
 
@@ -75,6 +77,19 @@ public:
 
     // --- 增量添加文档（线程安全，同时持久化索引）---
     bool AddDocument(const Document& doc);
+
+    // --- 原子切换索引（双 Buffer，后台重建完成后调用）---
+    void SwapIndexes(std::shared_ptr<InvertedIndex> new_inverted,
+                     std::shared_ptr<VectorIndex> new_vector) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        inverted_index_ = std::move(new_inverted);
+        vector_index_ = std::move(new_vector);
+        // 更新 IndexBuilder 的引用
+        if (index_builder_) {
+            index_builder_->SetInvertedIndex(inverted_index_);
+            index_builder_->SetVectorIndex(vector_index_);
+        }
+    }
 
 private:
     AppContext() = default;

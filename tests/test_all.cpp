@@ -19,6 +19,8 @@
 // 项目头文件
 #include "core/session.h"
 #include "core/processor.h"
+#include "core/background_scheduler.h"
+#include "core/app_context.h"
 #include "rank/freshness_scorer.h"
 #include "rank/mmr_reranker.h"
 #include "rank/lgbm_ranker.h"
@@ -591,6 +593,141 @@ void test_mmr_ab_override() {
 }
 
 // ============================================================
+// BackgroundScheduler - 启动/停止/生命周期
+// ============================================================
+void test_background_scheduler_lifecycle() {
+    SECTION("BackgroundScheduler - 启动/停止生命周期");
+
+    BackgroundScheduler scheduler;
+
+    // 默认未运行
+    EXPECT(!scheduler.IsRunning(), "创建后默认未运行");
+
+    // 配置全部 disable，启动后应正常运行（空循环）
+    AutoTrainConfig train_cfg;
+    train_cfg.enable = false;
+    scheduler.SetAutoTrainConfig(train_cfg);
+
+    AutoIndexRebuildConfig rebuild_cfg;
+    rebuild_cfg.enable = false;
+    scheduler.SetAutoIndexRebuildConfig(rebuild_cfg);
+
+    scheduler.Start();
+    EXPECT(scheduler.IsRunning(), "Start() 后 IsRunning()=true");
+
+    // 重复 Start 应安全
+    scheduler.Start();
+    EXPECT(scheduler.IsRunning(), "重复 Start() 安全");
+
+    // 停止
+    scheduler.Stop();
+    EXPECT(!scheduler.IsRunning(), "Stop() 后 IsRunning()=false");
+
+    // 重复 Stop 应安全
+    scheduler.Stop();
+    EXPECT(!scheduler.IsRunning(), "重复 Stop() 安全");
+}
+
+// ============================================================
+// BackgroundScheduler - 快速启停（模拟短生命周期）
+// ============================================================
+void test_background_scheduler_quick_stop() {
+    SECTION("BackgroundScheduler - 快速启停无死锁");
+
+    // 验证启动后立即停止不会死锁
+    for (int i = 0; i < 5; ++i) {
+        BackgroundScheduler scheduler;
+        AutoTrainConfig cfg;
+        cfg.enable = true;
+        cfg.check_interval_sec = 1;
+        scheduler.SetAutoTrainConfig(cfg);
+        scheduler.Start();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        scheduler.Stop();
+    }
+    EXPECT(true, "5次快速启停无死锁");
+}
+
+// ============================================================
+// AppContext::SwapIndexes - 原子切换索引
+// ============================================================
+void test_swap_indexes() {
+    SECTION("AppContext::SwapIndexes - 原子索引切换");
+
+    auto& ctx = AppContext::Instance();
+
+    // 构建新索引
+    auto new_inverted = std::make_shared<InvertedIndex>();
+    new_inverted->AddDocument("swap_doc_1", "测试标题", "测试内容",
+                              "test", {}, 100);
+
+    VectorIndexConfig vec_cfg;
+    vec_cfg.dim = 64;
+    auto new_vector = std::make_shared<VectorIndex>(vec_cfg);
+
+    // 记录切换前的索引指针
+    auto old_inverted = ctx.GetInvertedIndex();
+
+    // 执行原子切换
+    ctx.SwapIndexes(new_inverted, new_vector);
+
+    // 验证切换成功
+    auto current = ctx.GetInvertedIndex();
+    EXPECT(current.get() == new_inverted.get(), "切换后 GetInvertedIndex 返回新索引");
+    EXPECT(current.get() != old_inverted.get(), "新旧索引指针不同");
+    EXPECT(ctx.GetVectorIndex().get() == new_vector.get(), "向量索引也切换成功");
+
+    // 验证新索引内容
+    EXPECT(current->GetDocCount() == 1, "新索引包含 1 篇文档");
+
+    // 恢复旧索引（不影响后续测试）
+    ctx.SwapIndexes(old_inverted, std::make_shared<VectorIndex>(vec_cfg));
+}
+
+// ============================================================
+// BackgroundScheduler - 并发安全（读写索引 + 切换同时发生）
+// ============================================================
+void test_swap_indexes_concurrent() {
+    SECTION("SwapIndexes - 并发读写安全");
+
+    auto& ctx = AppContext::Instance();
+
+    // 确保初始有有效索引
+    VectorIndexConfig vec_cfg;
+    vec_cfg.dim = 64;
+    ctx.SwapIndexes(std::make_shared<InvertedIndex>(),
+                    std::make_shared<VectorIndex>(vec_cfg));
+
+    std::atomic<int> errors{0};
+    std::atomic<bool> stop{false};
+
+    // 读线程：持续读取索引
+    std::thread reader([&]() {
+        while (!stop.load()) {
+            auto idx = ctx.GetInvertedIndex();
+            if (!idx) ++errors;
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    // 切换线程：快速切换多次（每次都是有效索引）
+    std::thread swapper([&]() {
+        for (int i = 0; i < 20; ++i) {
+            auto new_inv = std::make_shared<InvertedIndex>();
+            auto new_vec = std::make_shared<VectorIndex>(vec_cfg);
+            ctx.SwapIndexes(new_inv, new_vec);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        stop.store(true);
+    });
+
+    reader.join();
+    swapper.join();
+
+    EXPECT(errors.load() == 0, "并发读 + 切换无 null 指针");
+}
+
+// ============================================================
 // main
 // ============================================================
 int main() {
@@ -613,6 +750,10 @@ int main() {
     test_feature_dimension();
     test_vector_recall_fallback();
     test_mmr_ab_override();
+    test_background_scheduler_lifecycle();
+    test_background_scheduler_quick_stop();
+    test_swap_indexes();
+    test_swap_indexes_concurrent();
 
     std::cout << "\n====================================================\n";
     std::cout << "  结果：PASS=" << g_pass << "  FAIL=" << g_fail << "\n";

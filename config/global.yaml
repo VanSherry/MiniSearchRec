@@ -46,3 +46,25 @@ embedding:
   # endpoint: "http://localhost:8000/v1/embeddings"
   # model: "bge-base-zh-v1.5"
   # api_key: ""
+
+# 后台任务配置（自动训练 + 自动索引重建）
+background:
+  # 自动训练：事件驱动 + 定时兜底
+  auto_train:
+    enable: true
+    interval_hours: 24             # 兜底：最长 24h 训练一次
+    min_events: 500                # 最少积累 500 条新事件才触发提前训练
+    check_interval_sec: 300        # 每 5 分钟检查一次
+    train_script: "./scripts/train_rank_model.py"
+    model_output: "./models/rank_model.txt"
+    events_db: "./data/events.db"
+    docs_db: "./data/docs.db"
+    train_data_output: "./data/train.txt"
+    dump_tool: "./build/dump_train_data"
+
+  # 自动索引重建：定时全量重建 + 原子切换（不停服）
+  auto_index_rebuild:
+    enable: true
+    interval_hours: 12             # 每 12h 全量重建一次
+    min_doc_changes: 10            # （预留）文档变更数阈值
+    check_interval_sec: 600        # 每 10 分钟检查一次

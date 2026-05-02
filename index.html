@@ -334,7 +334,7 @@ footer a:hover{text-decoration:underline}
     工业级<br>
     <span class="line2">搜索推荐引擎</span>
   </h1>
-  <p class="hero-desc">从召回到精排的完整搜索链路，包含 LightGBM 离线训练闭环与双 Buffer 热更新，每个模块均已实现并通过 47 项集成测试。</p>
+  <p class="hero-desc">从召回到精排的完整搜索链路，包含 LightGBM 离线训练闭环与双 Buffer 热更新，BackgroundScheduler 后台自动训练+索引重建（无需 cron），每个模块均已实现并通过 63 项集成测试。</p>
   <div class="hero-cta">
     <a class="btn btn-primary" href="#pipeline">探索架构 →</a>
     <a class="btn btn-ghost" href="https://github.com/VanSherry/MiniSearchRec" target="_blank">
@@ -466,8 +466,8 @@ footer a:hover{text-decoration:underline}
       <div style="display:flex;align-items:flex-start;gap:32px;flex-wrap:wrap">
         <div style="flex:1;min-width:240px">
           <div class="b-eye" style="color:var(--pink)">训练闭环</div>
-          <h3 style="font-size:22px">在线行为 → 离线训练 → 双 Buffer 热更新</h3>
-          <p>无需人工标注，点击/点赞/停留自动转化为训练标签，训练完成后 POST 一个接口即可切换新模型，服务全程不停机</p>
+          <h3 style="font-size:22px">在线行为 → 自动训练 → 双 Buffer 热更新</h3>
+          <p>无需人工标注，点击/点赞/停留自动转化为训练标签。<strong>BackgroundScheduler 后台线程自动执行 dump → train → reload</strong>（fork 子进程隔离，崩溃不影响主服务），全程不停机</p>
         </div>
         <div style="display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow-x:auto">
           <div style="text-align:center;padding:0 12px">
@@ -886,6 +886,7 @@ footer a:hover{text-decoration:underline}
         <tr><td>BM25ScorerProcessor</td><td>Light Ranker</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>LGBMScorerProcessor（10 维特征）</td><td>Heavy Ranker</td><td><span class="opt">◎ 需 LightGBM</span></td></tr>
         <tr><td>dump_train + train_rank_model</td><td>ML Platform</td><td><span class="ok">✓ 完整实现</span></td></tr>
+        <tr><td>BackgroundScheduler 自动训练+索引重建</td><td>Auto Pipeline</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>MMRRerankProcessor（中文字符级）</td><td>Diversity Ranker</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>UserProfile（真正 EMA 增量更新）</td><td>Real-time Feature Store</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>ABTest（已接入 Pipeline）</td><td>FeatureSwitch</td><td><span class="ok">✓ 完整实现</span></td></tr>
@@ -894,7 +895,7 @@ footer a:hover{text-decoration:underline}
         <tr><td>双 Buffer 热更新（reload_model API）</td><td>ML Platform Hot Swap</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>Session deadline + IsTimedOut()</td><td>Stage Timeout</td><td><span class="ok">✓ 完整实现</span></td></tr>
         <tr><td>EmbeddingProvider（配置驱动 pseudo/http）</td><td>Query Tower</td><td><span class="ok">✓ 完整实现</span></td></tr>
-        <tr><td>test_all 52 项集成测试</td><td>Integration Testing</td><td><span class="ok">✓ 52/52 通过</span></td></tr>
+        <tr><td>test_all 63 项集成测试</td><td>Integration Testing</td><td><span class="ok">✓ 63/63 通过</span></td></tr>
       </tbody>
     </table>
   </div>

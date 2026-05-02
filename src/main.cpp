@@ -4,15 +4,33 @@
 
 #include <iostream>
 #include <memory>
+#include <csignal>
+#include <atomic>
 #include "core/config_manager.h"
 #include "core/factory.h"
 #include "core/app_context.h"
+#include "core/background_scheduler.h"
 #include "service/http_server.h"
 #include "utils/logger.h"
 
+// =========================================================
+// 信号处理：优雅退出
+// =========================================================
+static std::atomic<bool> g_shutdown_requested{false};
+static minisearchrec::HttpServer* g_server = nullptr;
+
+static void SignalHandler(int sig) {
+    if (sig == SIGINT || sig == SIGTERM) {
+        g_shutdown_requested.store(true);
+        if (g_server) {
+            g_server->Stop();
+        }
+    }
+}
+
 void PrintBanner() {
     std::cout << "============================================\n";
-    std::cout << "   MiniSearchRec v1.0\n";
+    std::cout << "   MiniSearchRec v1.1\n";
     std::cout << "   Mini Search Recommendation Engine\n";
     std::cout << "   https://github.com/VanSherry/MiniSearchRec\n";
     std::cout << "============================================\n";
@@ -30,6 +48,10 @@ using namespace minisearchrec;
 
 int main(int argc, char* argv[]) {
     PrintBanner();
+
+    // 注册信号处理
+    std::signal(SIGINT, SignalHandler);
+    std::signal(SIGTERM, SignalHandler);
 
     // 解析命令行参数
     std::string config_dir  = "./config";
@@ -59,6 +81,18 @@ int main(int argc, char* argv[]) {
     }
     LOG_INFO("Config loaded successfully.");
 
+    // 用配置中的日志参数重新初始化 logger（启用文件日志）
+    {
+        const auto& log_cfg = ConfigManager::Instance().GetGlobalConfig().log;
+        auto log_level = utils::LogLevel::INFO;
+        if (log_cfg.level == "trace") log_level = utils::LogLevel::TRACE;
+        else if (log_cfg.level == "debug") log_level = utils::LogLevel::DEBUG;
+        else if (log_cfg.level == "warn") log_level = utils::LogLevel::WARN;
+        else if (log_cfg.level == "error") log_level = utils::LogLevel::ERROR;
+        utils::InitLogger(log_level, log_cfg.file, log_cfg.max_size_mb, log_cfg.max_files);
+        LOG_INFO("Logger re-initialized: level={}, file={}", log_cfg.level, log_cfg.file);
+    }
+
     // 注册所有内置处理器（Factory）
     RegisterBuiltinProcessors();
     LOG_INFO("Builtin processors registered.");
@@ -86,22 +120,58 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // 启动 HTTP 服务器
+    // ── 启动后台调度器 ──
+    BackgroundScheduler scheduler;
+    {
+        const auto& bg_cfg = global_cfg.background;
+
+        AutoTrainConfig train_cfg;
+        train_cfg.enable = bg_cfg.auto_train.enable;
+        train_cfg.interval_hours = bg_cfg.auto_train.interval_hours;
+        train_cfg.min_events = bg_cfg.auto_train.min_events;
+        train_cfg.check_interval_sec = bg_cfg.auto_train.check_interval_sec;
+        train_cfg.train_script = bg_cfg.auto_train.train_script;
+        train_cfg.model_output = bg_cfg.auto_train.model_output;
+        train_cfg.events_db = bg_cfg.auto_train.events_db;
+        train_cfg.docs_db = bg_cfg.auto_train.docs_db;
+        train_cfg.train_data_output = bg_cfg.auto_train.train_data_output;
+        train_cfg.dump_tool = bg_cfg.auto_train.dump_tool;
+        scheduler.SetAutoTrainConfig(train_cfg);
+
+        AutoIndexRebuildConfig rebuild_cfg;
+        rebuild_cfg.enable = bg_cfg.auto_index_rebuild.enable;
+        rebuild_cfg.interval_hours = bg_cfg.auto_index_rebuild.interval_hours;
+        rebuild_cfg.min_doc_changes = bg_cfg.auto_index_rebuild.min_doc_changes;
+        rebuild_cfg.check_interval_sec = bg_cfg.auto_index_rebuild.check_interval_sec;
+        scheduler.SetAutoIndexRebuildConfig(rebuild_cfg);
+    }
+    scheduler.Start();
+
+    // ── 启动 HTTP 服务器 ──
     int port        = global_cfg.server.port;
     std::string host = global_cfg.server.host;
     LOG_INFO("Starting HTTP server on {}:{}", host, port);
     std::cout << "[INFO] Server starting on " << host << ":" << port << "\n";
 
     auto server = std::make_unique<HttpServer>(host, port);
+    g_server = server.get();
+
     if (!server->Initialize()) {
         LOG_ERROR("Failed to initialize HTTP server!");
+        scheduler.Stop();
         return 1;
     }
 
-    LOG_INFO("Server ready. Press Ctrl+C to stop.");
-    std::cout << "[INFO] Server ready. Press Ctrl+C to stop.\n";
-    server->Run();
+    LOG_INFO("Server ready. Ctrl+C or SIGTERM to stop.");
+    std::cout << "[INFO] Server ready. Ctrl+C or SIGTERM to stop.\n";
+    server->Run();  // 阻塞直到 Stop() 被调用
 
+    // ── 优雅退出 ──
+    LOG_INFO("Shutting down...");
+    scheduler.Stop();
+    g_server = nullptr;
+
+    LOG_INFO("Shutdown complete.");
     utils::ShutdownLogger();
     return 0;
 }

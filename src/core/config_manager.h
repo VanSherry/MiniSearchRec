@@ -49,6 +49,28 @@ struct GlobalConfig {
         std::string model;
         std::string api_key;
     } embedding;
+
+    struct BackgroundConfig {
+        struct AutoTrainConfig {
+            bool enable = false;
+            int interval_hours = 24;
+            int min_events = 500;
+            int check_interval_sec = 300;
+            std::string train_script = "./scripts/train_rank_model.py";
+            std::string model_output = "./models/rank_model.txt";
+            std::string events_db = "./data/events.db";
+            std::string docs_db = "./data/docs.db";
+            std::string train_data_output = "./data/train.txt";
+            std::string dump_tool = "./build/dump_train_data";
+        } auto_train;
+
+        struct AutoIndexRebuildConfig {
+            bool enable = false;
+            int interval_hours = 12;
+            int min_doc_changes = 10;
+            int check_interval_sec = 600;
+        } auto_index_rebuild;
+    } background;
 };
 
 class ConfigManager {

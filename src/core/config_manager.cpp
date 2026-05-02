@@ -89,6 +89,44 @@ bool ConfigManager::LoadGlobalConfig(const std::string& path) {
                 config["embedding"]["api_key"].as<std::string>("");
         }
 
+        if (config["background"]) {
+            auto bg = config["background"];
+            if (bg["auto_train"]) {
+                auto at = bg["auto_train"];
+                global_config_.background.auto_train.enable =
+                    at["enable"].as<bool>(false);
+                global_config_.background.auto_train.interval_hours =
+                    at["interval_hours"].as<int>(24);
+                global_config_.background.auto_train.min_events =
+                    at["min_events"].as<int>(500);
+                global_config_.background.auto_train.check_interval_sec =
+                    at["check_interval_sec"].as<int>(300);
+                global_config_.background.auto_train.train_script =
+                    at["train_script"].as<std::string>("./scripts/train_rank_model.py");
+                global_config_.background.auto_train.model_output =
+                    at["model_output"].as<std::string>("./models/rank_model.txt");
+                global_config_.background.auto_train.events_db =
+                    at["events_db"].as<std::string>("./data/events.db");
+                global_config_.background.auto_train.docs_db =
+                    at["docs_db"].as<std::string>("./data/docs.db");
+                global_config_.background.auto_train.train_data_output =
+                    at["train_data_output"].as<std::string>("./data/train.txt");
+                global_config_.background.auto_train.dump_tool =
+                    at["dump_tool"].as<std::string>("./build/dump_train_data");
+            }
+            if (bg["auto_index_rebuild"]) {
+                auto ar = bg["auto_index_rebuild"];
+                global_config_.background.auto_index_rebuild.enable =
+                    ar["enable"].as<bool>(false);
+                global_config_.background.auto_index_rebuild.interval_hours =
+                    ar["interval_hours"].as<int>(12);
+                global_config_.background.auto_index_rebuild.min_doc_changes =
+                    ar["min_doc_changes"].as<int>(10);
+                global_config_.background.auto_index_rebuild.check_interval_sec =
+                    ar["check_interval_sec"].as<int>(600);
+            }
+        }
+
         // 配置合法性校验
         if (!ValidateGlobalConfig()) {
             LOG_ERROR("Global config validation failed for file: {}", path);

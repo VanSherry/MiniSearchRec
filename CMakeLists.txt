@@ -164,6 +164,7 @@ set(CORE_SRCS
     src/core/config_manager.cpp
     src/core/factory.cpp
     src/core/app_context.cpp
+    src/core/background_scheduler.cpp
 )
 
 # build_index 只需要核心基础（不含 factory，factory 依赖全部 processor）
