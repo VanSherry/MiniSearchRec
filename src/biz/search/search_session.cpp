@@ -5,10 +5,14 @@
 // ============================================================
 
 #include "biz/search/search_session.h"
+#include "framework/class_register.h"
 
 namespace minisearchrec {
 
 // SearchSession 暂无额外业务方法需要实现
-// 未来可在此添加：InitFromProto / BuildResponse 等垂搜专有逻辑
 
 } // namespace minisearchrec
+
+// 注册到框架 Session 反射表（配置驱动创建）
+using namespace minisearchrec;
+REGISTER_MSR_SESSION(SearchSession);

@@ -14,7 +14,7 @@ namespace minisearchrec {
 bool AppContext::Initialize(const std::string& data_dir,
                              const std::string& index_dir,
                              bool rebuild_on_start) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     index_dir_ = index_dir;  // 保存供 AddDocument 使用
 
     LOG_INFO("AppContext initializing, data_dir={}, index_dir={}, rebuild={}",
@@ -130,7 +130,7 @@ bool AppContext::Initialize(const std::string& data_dir,
 }
 
 bool AppContext::AddDocument(const Document& doc) {
-    std::lock_guard<std::mutex> lock(mutex_);  // BUG-4 修复：加锁保护
+    std::lock_guard<std::recursive_mutex> lock(mutex_);  // BUG-4 修复：加锁保护
     if (!index_builder_) return false;
     bool ok = index_builder_->AddDocument(doc);
     // 同步刷盘（加锁保证安全，后台调度器会定时触发全量重建）

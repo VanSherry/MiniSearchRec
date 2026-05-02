@@ -32,13 +32,26 @@ logs/
 data/*.json
 !data/sample_docs.json
 data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
 data/*.txt
+data/user_profiles/
+
+# Models (keep directory structure, ignore large files)
 models/*.txt
 models/*.bin
 models/versions/
+
+# Index files
 index/*.idx
 index/*.faiss
 index/*.db
+
+# Symlinks created by CMake (build -> source)
+config/config
+models/models
+data/data
 
 # Config local overrides
 config/local.yaml

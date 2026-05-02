@@ -356,6 +356,21 @@ if(APPLE)
 endif()
 
 # ============================================================
+# 构建后自动创建 config/models/data 符号链接（在 build 目录下）
+# 避免手动 ln -sf 时目录错误导致循环链接
+# ============================================================
+foreach(DIR_NAME config models data)
+    if(NOT EXISTS "${CMAKE_BINARY_DIR}/${DIR_NAME}")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "${CMAKE_SOURCE_DIR}/${DIR_NAME}"
+                "${CMAKE_BINARY_DIR}/${DIR_NAME}"
+        )
+        message(STATUS "Symlink: build/${DIR_NAME} -> ../${DIR_NAME}")
+    endif()
+endforeach()
+
+# ============================================================
 # 测试
 # ============================================================
 if(BUILD_TESTS)

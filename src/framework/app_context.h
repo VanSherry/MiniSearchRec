@@ -35,29 +35,29 @@ public:
 
     // --- 索引访问器（线程安全）---
     std::shared_ptr<InvertedIndex> GetInvertedIndex() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return inverted_index_;
     }
 
     std::shared_ptr<VectorIndex> GetVectorIndex() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return vector_index_;
     }
 
     std::shared_ptr<DocStore> GetDocStore() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return doc_store_;
     }
 
     std::shared_ptr<IndexBuilder> GetIndexBuilder() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return index_builder_;
     }
 
     // --- Embedding 提供器（配置驱动，一键切换）---
     // 保证永远不返回 null：未初始化时使用默认 PseudoEmbeddingProvider
     std::shared_ptr<EmbeddingProvider> GetEmbeddingProvider() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!embedding_provider_) {
             static auto default_provider =
                 std::make_shared<PseudoEmbeddingProvider>();
@@ -68,12 +68,12 @@ public:
 
     // --- A/B 实验框架 ---
     std::shared_ptr<ABTestManager> GetABTestManager() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return ab_test_manager_;
     }
 
     void SetABTestManager(std::shared_ptr<ABTestManager> mgr) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         ab_test_manager_ = std::move(mgr);
     }
 
@@ -86,7 +86,7 @@ public:
     // --- 原子切换索引（双 Buffer，后台重建完成后调用）---
     void SwapIndexes(std::shared_ptr<InvertedIndex> new_inverted,
                      std::shared_ptr<VectorIndex> new_vector) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         inverted_index_ = std::move(new_inverted);
         vector_index_ = std::move(new_vector);
         // 更新 IndexBuilder 的引用
@@ -107,7 +107,7 @@ private:
     std::shared_ptr<ABTestManager> ab_test_manager_;
     bool ready_ = false;
     std::string index_dir_;        // 保存索引目录路径，供 AddDocument 持久化使用
-    mutable std::mutex mutex_;
+    mutable std::recursive_mutex mutex_;
 };
 
 } // namespace minisearchrec
