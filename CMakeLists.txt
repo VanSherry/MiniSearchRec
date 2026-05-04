@@ -303,14 +303,13 @@ set(INDEX_SRCS
 )
 
 set(RANK_SRCS
+    src/lib/rank/engine/rank_engine.cpp
     src/lib/rank/scorer/bm25_rank_processor.cpp
     src/lib/rank/scorer/quality_rank_processor.cpp
     src/lib/rank/scorer/freshness_rank_processor.cpp
     src/lib/rank/scorer/lgbm_rank_processor.cpp
     src/lib/rank/scorer/weighted_sum_scorer.cpp
     src/lib/rank/reranker/mmr_reranker.cpp
-    src/lib/rank/base/rank.cpp
-    src/lib/rank/base/rank_manager.cpp
 )
 
 set(FEATURE_SRCS
@@ -376,14 +375,10 @@ set(BIZ_SRCS
     src/biz/doc/doc_handler.cpp
     src/biz/event/event_handler.cpp
     src/biz/search/search_handler.cpp
-    src/biz/search/search_factory.cpp
     src/biz/sug/sug_handler.cpp
     src/biz/sug/sug_trie.cpp
-    src/biz/sug/sug_factory.cpp
     src/biz/hint/hint_handler.cpp
-    src/biz/hint/hint_factory.cpp
     src/biz/nav/nav_handler.cpp
-    src/biz/nav/nav_factory.cpp
 )
 
 set(UTILS_SRCS

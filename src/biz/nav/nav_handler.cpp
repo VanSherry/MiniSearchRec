@@ -1,7 +1,7 @@
 #include "framework/class_register.h"
 #include "biz/nav/nav_handler.h"
 #include "biz/search/search_session.h"
-#include "lib/rank/base/rank_vector.h"
+#include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <json/json.h>
 
@@ -26,29 +26,21 @@ int32_t NavBizHandler::MergeRecall(
     return 0;
 }
 
-int32_t NavBizHandler::AfterRank(framework::Session* session) const {
-    return 0;
-}
-
 bool NavBizHandler::CanSearch(framework::Session* session) const {
     return InterposeCheckQuery(session);
 }
 
 int32_t NavBizHandler::SetResponse(framework::Session* session) const {
-    auto* vec_ptr = session->GetAny<rank::RankVectorPtr>("nav_rank_vector");
+    auto* items_ptr = session->GetAny<std::vector<rank::RankItem>>("nav_rank_vector");
     Json::Value root;
     root["ret"] = 0; root["err_msg"] = ""; root["search_id"] = session->search_id;
     Json::Value results(Json::arrayValue);
 
-    if (vec_ptr && *vec_ptr) {
-        auto& vec = **vec_ptr;
-        root["total"] = (int)vec.Size();
-        for (uint32_t i = 0; i < vec.Size(); ++i) {
-            auto* item = vec.GetItem(i).get();
-            if (!item) continue;
+    if (items_ptr) {
+        root["total"] = (int)items_ptr->size();
+        for (const auto& item : *items_ptr) {
             Json::Value r;
-            r["word"] = item->Word(); r["source"] = item->Desc();
-            r["hot_score"] = item->Score();
+            r["word"] = item.id; r["source"] = item.source; r["hot_score"] = item.score;
             results.append(r);
         }
     } else root["total"] = 0;

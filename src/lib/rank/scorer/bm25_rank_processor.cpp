@@ -3,22 +3,18 @@
 
 namespace minisearchrec {
 
-int BM25RankProcessor::Process() {
-    if (!ctx_) return -1;
-    float w = config_ ? config_->weight : 1.0f;
+int BM25RankProcessor::Init(const rank::ProcessorConfig* config) {
+    config_ = config;
+    weight_ = config ? config->weight : 1.0f;
+    return 0;
+}
 
-    auto vec = ctx_->GetVector();
-    int count = 0;
-    for (uint32_t i = 0; i < vec->Size(); ++i) {
-        auto* item = vec->GetItem(i).get();
-        if (!item) continue;
-        float bm25 = item->GetFeature("bm25");
-        float total = item->GetFeature("total_score");
-        item->SetFeature("total_score", total + bm25 * w);
-        ++count;
+int BM25RankProcessor::Process(std::vector<rank::RankItem>& items) {
+    for (auto& item : items) {
+        float bm25   = item.GetFeature("bm25");
+        float total  = item.GetFeature("total_score");
+        item.SetFeature("total_score", total + bm25 * weight_);
     }
-
-    LOG_DEBUG("BM25RankProcessor: scored {} items (weight={:.2f})", count, w);
     return 0;
 }
 

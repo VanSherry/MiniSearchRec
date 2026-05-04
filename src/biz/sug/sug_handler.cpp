@@ -6,7 +6,7 @@
 #include "framework/app_context.h"
 #include "lib/storage/query_stats_store.h"
 #include "lib/index/doc_store.h"
-#include "lib/rank/base/rank_vector.h"
+#include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <json/json.h>
 #include <ctime>
@@ -61,7 +61,6 @@ void SugBizHandler::RebuildTrie() {
 int32_t SugBizHandler::MergeRecall(
     framework::Session* session,
     const std::vector<framework::RecallOutputPtr>& outputs) const {
-    // 聚合所有 DAG 召回结果存入 any_store，供 SugRank::PrepareInput 使用
     std::vector<DocCandidate> all_cands;
     for (const auto& output : outputs) {
         try {
@@ -73,31 +72,23 @@ int32_t SugBizHandler::MergeRecall(
     return 0;
 }
 
-int32_t SugBizHandler::AfterRank(framework::Session* session) const {
-    // GenerateRankOutput 已排序+截断，无需额外处理
-    return 0;
-}
-
 bool SugBizHandler::CanSearch(framework::Session* session) const {
     if (session->query.empty()) { LOG_DEBUG("SugBizHandler: empty query, rejected"); return false; }
     return InterposeCheckQuery(session);
 }
 
 int32_t SugBizHandler::SetResponse(framework::Session* session) const {
-    auto* vec_ptr = session->GetAny<rank::RankVectorPtr>("sug_rank_vector");
+    auto* items_ptr = session->GetAny<std::vector<rank::RankItem>>("sug_rank_vector");
     Json::Value root;
     root["ret"] = 0; root["err_msg"] = ""; root["search_id"] = session->search_id;
     Json::Value results(Json::arrayValue);
 
-    if (vec_ptr && *vec_ptr) {
-        auto& vec = **vec_ptr;
-        root["total"] = (int)vec.Size();
-        for (uint32_t i = 0; i < vec.Size(); ++i) {
-            auto* item = vec.GetItem(i).get();
-            if (!item) continue;
+    if (items_ptr) {
+        root["total"] = (int)items_ptr->size();
+        for (const auto& item : *items_ptr) {
             Json::Value r;
-            r["word"] = item->Word(); r["source"] = item->Desc();
-            r["score"] = item->Score(); r["highlight_len"] = (int)session->query.size();
+            r["word"] = item.id; r["source"] = item.source;
+            r["score"] = item.score; r["highlight_len"] = (int)session->query.size();
             results.append(r);
         }
     } else root["total"] = 0;

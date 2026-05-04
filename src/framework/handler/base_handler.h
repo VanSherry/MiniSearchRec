@@ -28,8 +28,7 @@
 #include <vector>
 #include "framework/session/session.h"
 #include "framework/processor/dag_pipeline.h"
-#include "lib/rank/base/rank_manager.h"
-#include "lib/rank/base/rank.h"
+#include "lib/rank/engine/rank_engine.h"
 
 namespace minisearchrec {
 namespace framework {
@@ -118,41 +117,37 @@ protected:
     virtual int32_t ExtraDoSearch(Session* session) const;
 
     // 合并 DAG 并行召回结果到 Session
-    // 子业务可 override 实现自己的融合策略（如 RRF、加权融合等）
     virtual int32_t MergeRecall(Session* session,
                                 const std::vector<RecallOutputPtr>& outputs) const;
 
     // ── 4. Rank 阶段（排序）──
+    // 主框架负责 Session I/O，Rank 引擎只做纯计算
+    //   BuildRankInput(session)       → vector<RankItem>（主框架读 session）
+    //   RankEngine::Score(items)       → 纯计算
+    //   ApplyRankOutput(session, items) → 写回 session
+    //   AfterRank(session)             → 排序截断后处理
+
+    // 从 session 构建 RankInput（业务覆写，定义自己的输入源）
+    virtual std::vector<rank::RankItem> BuildRankInput(
+        Session* session, const std::string& stage) const;
+
+    // 将 RankOutput 写回 session（业务覆写，定义自己的输出目标）
+    virtual void ApplyRankOutput(Session* session,
+                                 std::vector<rank::RankItem>& items,
+                                 const std::string& stage) const;
+
     virtual int32_t DoRank(Session* session) const;
     virtual int32_t BeforeRank(Session* session) const;
     virtual int32_t CommonDoRank(Session* session) const;
     virtual int32_t ExtraDoRank(Session* session) const;
     virtual int32_t AfterRank(Session* session) const;
 
-    // ── 5. Rerank 阶段（重排序，对标 BaseHandler::HandlerRerank）──
-    //
-    // 完整流程（
-    //   a) SetRerankInput()      → 用 Rank output 构建 Rerank input
-    //   b) CommonDoRerank()      → 调用 RankSvr 或本地 RankMgr 执行 Rerank
-    //   c) AfterRerank()         → 后处理（结果替换、特征保留）
-    //   (失败 → IsRerankFailUseRankOutput → 用 Rank 结果兜底)
-    //
-    // 使用场景：当粗排（Rank）无法满足精度需求时，对 Top-N 结果做二次精排
-    // 例如：粗排用规则/轻量模型，Rerank 用 DeepFM/BERT 重打分
+    // ── 5. Rerank 阶段（重排序）──
+    // 与 Rank 使用相同的 BuildRankInput / ApplyRankOutput 机制
+    // stage 参数传 "rerank"，从 YAML 的 rank_config.rerank 读取 processor 配置
     virtual int32_t DoRerank(Session* session) const;
-
-    // 构建 Rerank 输入（用 Rank 的 output 填充 Rerank 的 input）
-    virtual int32_t SetRerankInput(Session* session) const;
-
-    // 执行 Rerank 核心逻辑
     virtual int32_t CommonDoRerank(Session* session) const;
-
-    // Rerank 后处理（结果替换 + 特征保留）
     virtual int32_t AfterRerank(Session* session) const;
-
-    // Rerank 失败时是否使用 Rank 的结果兜底
-    // 对标 IsRerankFailUseRankOutput
-    virtual bool IsRerankFailUseRankOutput(Session* session) const { return false; }
 
     // ── 6. Interpose 阶段（人工干预，对标 BaseHandler::DoInterpose）──
     //

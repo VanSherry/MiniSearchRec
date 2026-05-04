@@ -3,7 +3,7 @@
 #include "biz/search/search_session.h"
 #include "framework/config/config_manager.h"
 #include "lib/storage/doc_cooccur_store.h"
-#include "lib/rank/base/rank_vector.h"
+#include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <json/json.h>
 
@@ -30,10 +30,6 @@ int32_t HintBizHandler::MergeRecall(
     return 0;
 }
 
-int32_t HintBizHandler::AfterRank(framework::Session* session) const {
-    return 0;
-}
-
 bool HintBizHandler::CanSearch(framework::Session* session) const {
     std::string doc_id = session->request.extra.count("doc_id") ? session->request.extra.at("doc_id") : "";
     if (doc_id.empty()) doc_id = session->Get("doc_id");
@@ -43,19 +39,16 @@ bool HintBizHandler::CanSearch(framework::Session* session) const {
 }
 
 int32_t HintBizHandler::SetResponse(framework::Session* session) const {
-    auto* vec_ptr = session->GetAny<rank::RankVectorPtr>("hint_rank_vector");
+    auto* items_ptr = session->GetAny<std::vector<rank::RankItem>>("hint_rank_vector");
     Json::Value root;
     root["ret"] = 0; root["err_msg"] = ""; root["search_id"] = session->search_id;
     Json::Value results(Json::arrayValue);
 
-    if (vec_ptr && *vec_ptr) {
-        auto& vec = **vec_ptr;
-        root["total"] = (int)vec.Size();
-        for (uint32_t i = 0; i < vec.Size(); ++i) {
-            auto* item = vec.GetItem(i).get();
-            if (!item) continue;
+    if (items_ptr) {
+        root["total"] = (int)items_ptr->size();
+        for (const auto& item : *items_ptr) {
             Json::Value r;
-            r["word"] = item->Word(); r["source"] = item->Desc(); r["score"] = item->Score();
+            r["word"] = item.id; r["source"] = item.source; r["score"] = item.score;
             results.append(r);
         }
     } else root["total"] = 0;

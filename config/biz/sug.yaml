@@ -8,15 +8,13 @@ recall_stages:
     depends_on: []
 
 rank_config:
-  factory: "SugFactory"
-  coarse_processors:
-    - name: "WeightedSumScorer"
-      weight: 1.0
-      params:
-        features:
-          - {name: "prefix_match", weight: 0.4}
-          - {name: "freq_norm", weight: 0.3}
-          - {name: "freshness", weight: 0.3}
-
-sug:
-  max_results: 8
+  rank:
+    top_k: 8
+    processors:
+      - name: "WeightedSumScorer"
+        weight: 1.0
+        params:
+          features:
+            - {name: "prefix_match", weight: 0.4}
+            - {name: "freq_norm", weight: 0.3}
+            - {name: "freshness", weight: 0.3}

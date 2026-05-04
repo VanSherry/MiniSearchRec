@@ -11,6 +11,8 @@
 #include "framework/handler/base_handler.h"
 #include "framework/processor/dag_pipeline.h"
 #include "framework/processor/processor_pipeline.h"
+#include "biz/search/search_session.h"
+#include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <algorithm>
 #include <chrono>
@@ -386,7 +388,6 @@ int32_t BaseHandler::DoSearch(Session* session) const {
 }
 
 int32_t BaseHandler::CommonDoSearch(Session* session) const {
-    // 通过 PipelineManager 调度 recall_dag（DAG 并行召回）
     auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
     if (pipeline_cfg && pipeline_cfg->recall_dag.Size() > 0) {
         std::vector<RecallOutputPtr> outputs;
@@ -400,14 +401,56 @@ int32_t BaseHandler::ExtraDoSearch(Session* session) const { return 0; }
 
 int32_t BaseHandler::MergeRecall(Session* session,
                                   const std::vector<RecallOutputPtr>& outputs) const {
-    // 默认实现：将所有算子输出简单写入 Session
-    // 子业务通常 override 此方法实现 RRF/加权融合等策略
     int total = 0;
     for (const auto& output : outputs) {
         total += static_cast<int>(output->item_count);
     }
     session->counts.retrieve_count = total;
     return 0;
+}
+
+// ============================================================
+// Rank 阶段（纯计算引擎，不碰 session）
+// ============================================================
+
+// 默认 BuildRankInput：从 any_store 读取 DocCandidate，转为 RankItem
+// key = business_type + "_recall_docs"
+std::vector<rank::RankItem> BaseHandler::BuildRankInput(
+    Session* session, const std::string& stage) const {
+    std::vector<rank::RankItem> result;
+
+    std::string key = config_.business_type + "_recall_docs";
+    auto* docs_ptr = session->GetAny<std::vector<DocCandidate>>(key);
+    if (!docs_ptr) return result;
+
+    for (auto& cand : *docs_ptr) {
+        rank::RankItem item;
+        item.id = cand.doc_id;
+        item.source = cand.recall_source;
+        // 复制 debug_scores → 特征
+        for (auto& [k, v] : cand.debug_scores) {
+            item.SetFeature(k, v);
+        }
+        result.push_back(std::move(item));
+    }
+    return result;
+}
+
+// 默认 ApplyRankOutput：按命名规则写入 any_store
+// key = business_type + "_rank_vector"
+void BaseHandler::ApplyRankOutput(Session* session,
+                                   std::vector<rank::RankItem>& items,
+                                   const std::string& stage) const {
+    // 排序 + 截断
+    std::sort(items.begin(), items.end(),
+        [](const rank::RankItem& a, const rank::RankItem& b) { return a.score > b.score; });
+
+    auto* cfg = rank::RankConfigManager::Instance().GetStageConfig(config_.business_type, stage);
+    int top_k = (cfg && cfg->top_k > 0) ? cfg->top_k : 20;
+    if ((int)items.size() > top_k) items.resize(top_k);
+
+    std::string key = config_.business_type + "_rank_vector";
+    session->SetAny(key, std::move(items));
 }
 
 int32_t BaseHandler::DoRank(Session* session) const {
@@ -417,118 +460,52 @@ int32_t BaseHandler::DoRank(Session* session) const {
 }
 
 int32_t BaseHandler::BeforeRank(Session* session) const { return 0; }
+
 int32_t BaseHandler::CommonDoRank(Session* session) const {
-    // 通过 RankManager 调度 rank Processors（粗排）
-    auto* factory = rank::RankManager::Instance().GetFactory(config_.business_type);
-    if (!factory) {
-        // fallback: 旧 Pipeline 方式
-        auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
-        if (pipeline_cfg && pipeline_cfg->rank_pipeline.Size() > 0) {
-            return pipeline_cfg->rank_pipeline.Execute(session);
-        }
-        return 0;
-    }
+    // 1. 主框架：从 session 读取数据 → RankInput
+    auto items = BuildRankInput(session, "rank");
+    if (items.empty()) return 0;
 
-    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
-    rank::RankArgs args;
-    args.business_type = config_.business_type;
-    args.query = session->query;
-    args.uid = session->uid;
-    args.page_size = session->request.page_size;
+    // 2. Rank 引擎：纯计算
+    const auto* cfg = rank::RankConfigManager::Instance().GetStageConfig(
+        config_.business_type, "rank");
+    if (!cfg || cfg->processors.empty()) return 0;
 
-    if (ranker->Init(args) != 0) {
-        LOG_ERROR("{}::CommonDoRank: Rank::Init failed", HandlerName());
-        return -1;
-    }
+    rank::RankEngine::Score(items, cfg->processors);
 
-    // 注入 Framework Session + 阶段名称
-    ranker->GetContext()->SetFrameworkSession(session);
-    ranker->SetStage("coarse");
+    // 3. 主框架：写回 session
+    ApplyRankOutput(session, items, "rank");
 
-    int ret = ranker->Process();
-    if (ret != 0) {
-        LOG_WARN("{}::CommonDoRank: Rank::Process failed, ret={}", HandlerName(), ret);
-    }
-    return ret;
+    // 4. 后处理
+    return AfterRank(session);
 }
 int32_t BaseHandler::ExtraDoRank(Session* session) const { return 0; }
 int32_t BaseHandler::AfterRank(Session* session) const { return 0; }
 
 int32_t BaseHandler::DoRerank(Session* session) const {
-    // 对标通用搜索框架 Rerank 完整流程
-    // 默认：如果未配置 rerank，直接跳过
-
-    // 1. SetRerankInput
-    int32_t ret = SetRerankInput(session);
-    if (ret != 0) {
-        LOG_WARN("{}: SetRerankInput failed, ret={}", HandlerName(), ret);
-        return ret;
-    }
-
-    // 2. CommonDoRerank（核心重排序）
-    ret = CommonDoRerank(session);
-    if (ret != 0) {
-        LOG_WARN("{}: CommonDoRerank failed, ret={}", HandlerName(), ret);
-        // 兜底策略：是否用 Rank 结果
-        if (IsRerankFailUseRankOutput(session)) {
-            LOG_INFO("{}: Rerank failed, fallback to Rank output", HandlerName());
-            return 0;
-        }
-        return ret;
-    }
-
-    // 3. AfterRerank（后处理：结果替换、特征保留等）
-    ret = AfterRerank(session);
-    if (ret != 0) {
-        LOG_WARN("{}: AfterRerank ret={}", HandlerName(), ret);
-    }
-
-    return 0;
-}
-
-int32_t BaseHandler::SetRerankInput(Session* session) const {
-    // 默认：无需构建 Rerank 输入（业务覆写时从 Rank output 填充）
-    return 0;
+    return CommonDoRerank(session);
 }
 
 int32_t BaseHandler::CommonDoRerank(Session* session) const {
-    // 通过 RankManager 调度 rank Processors（精排）
-    auto* factory = rank::RankManager::Instance().GetFactory(config_.business_type);
-    if (!factory) {
-        // fallback: 旧 Pipeline 方式
-        auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
-        if (pipeline_cfg && pipeline_cfg->rerank_pipeline.Size() > 0) {
-            return pipeline_cfg->rerank_pipeline.Execute(session);
-        }
-        return 0;
-    }
+    // 1. 主框架：从 session 读取数据 → RankInput
+    auto items = BuildRankInput(session, "rerank");
+    if (items.empty()) return 0;
 
-    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
-    rank::RankArgs args;
-    args.business_type = config_.business_type;
-    args.query = session->query;
-    args.uid = session->uid;
-    args.page_size = session->request.page_size;
+    // 2. Rank 引擎：纯计算
+    const auto* cfg = rank::RankConfigManager::Instance().GetStageConfig(
+        config_.business_type, "rerank");
+    if (!cfg || cfg->processors.empty()) return 0;
 
-    if (ranker->Init(args) != 0) {
-        LOG_ERROR("{}::CommonDoRerank: Rank::Init failed", HandlerName());
-        return -1;
-    }
+    rank::RankEngine::Score(items, cfg->processors);
 
-    ranker->GetContext()->SetFrameworkSession(session);
-    ranker->SetStage("fine");
+    // 3. 主框架：写回 session
+    ApplyRankOutput(session, items, "rerank");
 
-    int ret = ranker->Process();
-    if (ret != 0) {
-        LOG_WARN("{}::CommonDoRerank: Rank::Process failed, ret={}", HandlerName(), ret);
-    }
-    return ret;
+    // 4. 后处理
+    return AfterRerank(session);
 }
 
-int32_t BaseHandler::AfterRerank(Session* session) const {
-    // 默认：无后处理
-    return 0;
-}
+int32_t BaseHandler::AfterRerank(Session* session) const { return 0; }
 
 int32_t BaseHandler::SetResponse(Session* session) const {
     int32_t ret = CommonSetResponse(session);

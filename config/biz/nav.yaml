@@ -14,13 +14,11 @@ recall_stages:
     depends_on: []
 
 rank_config:
-  factory: "NavFactory"
-  coarse_processors:
-    - name: "WeightedSumScorer"
-      weight: 1.0
-      params:
-        features:
-          - {name: "heat", weight: 1.0}
-
-nav:
-  max_results: 6
+  rank:
+    top_k: 6
+    processors:
+      - name: "WeightedSumScorer"
+        weight: 1.0
+        params:
+          features:
+            - {name: "heat", weight: 1.0}

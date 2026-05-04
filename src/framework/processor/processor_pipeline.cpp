@@ -3,7 +3,7 @@
 // ============================================================
 
 #include "framework/processor/processor_pipeline.h"
-#include "lib/rank/base/rank_manager.h"
+#include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <chrono>
 #include <filesystem>
@@ -188,8 +188,8 @@ bool PipelineManager::Init(const std::string& config_dir) {
 
         configs_[business_type] = std::move(cfg);
 
-        // 加载 rank_config（RankManager 管理粗排/精排 Processor 链）
-        rank::RankManager::Instance().LoadFromConfig(yaml, business_type);
+        // 加载 rank_config（RankConfigManager 管理 rank/rerank Processor 链）
+        rank::RankConfigManager::Instance().LoadFromConfig(yaml, business_type);
     }
 
     LOG_INFO("PipelineManager: initialized with {} business types", configs_.size());

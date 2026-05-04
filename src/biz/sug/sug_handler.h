@@ -15,7 +15,6 @@ protected:
     bool CanSearch(framework::Session* session) const override;
     int32_t MergeRecall(framework::Session* session,
                         const std::vector<framework::RecallOutputPtr>& outputs) const override;
-    int32_t AfterRank(framework::Session* session) const override;
     int32_t SetResponse(framework::Session* session) const override;
     int32_t ExtraInit() override;
 };

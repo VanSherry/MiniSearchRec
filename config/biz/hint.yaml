@@ -17,16 +17,14 @@ recall_stages:
     depends_on: []
 
 rank_config:
-  factory: "HintFactory"
-  coarse_processors:
-    - name: "WeightedSumScorer"
-      weight: 1.0
-      params:
-        features:
-          - {name: "tag_relevance", weight: 0.4}
-          - {name: "category_relevance", weight: 0.3}
-          - {name: "cooccur_score", weight: 0.2}
-          - {name: "query_relevance", weight: 0.1}
-
-hint:
-  max_results: 8
+  rank:
+    top_k: 8
+    processors:
+      - name: "WeightedSumScorer"
+        weight: 1.0
+        params:
+          features:
+            - {name: "tag_relevance", weight: 0.4}
+            - {name: "category_relevance", weight: 0.3}
+            - {name: "cooccur_score", weight: 0.2}
+            - {name: "query_relevance", weight: 0.1}
