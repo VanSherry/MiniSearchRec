@@ -423,7 +423,7 @@ target_link_libraries(minisearchrec
     PRIVATE
     Threads::Threads
     protobuf::libprotobuf
-    yaml-cpp::yaml-cpp
+    ${YAML_CPP_LIBRARIES}
     jsoncpp
     sqlite3
     $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
@@ -491,7 +491,7 @@ if(BUILD_TESTS)
         PRIVATE
         Threads::Threads
         protobuf::libprotobuf
-        yaml-cpp::yaml-cpp
+        ${YAML_CPP_LIBRARIES}
         jsoncpp
         sqlite3
         $<$<BOOL:${spdlog_FOUND}>:spdlog::spdlog>
