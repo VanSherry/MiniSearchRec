@@ -447,21 +447,23 @@ endif()
 # 构建后自动创建 config/models/data 符号链接（在 build 目录下）
 # 避免手动 ln -sf 时目录错误导致循环链接
 # ============================================================
-foreach(DIR_NAME config models data index)
+# 源码目录 → 建立符号链接
+foreach(DIR_NAME config models data)
     if(NOT EXISTS "${CMAKE_BINARY_DIR}/${DIR_NAME}")
-        # index 是运行时创建目录，非源码目录，无需建立源链接
-        # 直接创建空目录，避免从 build/ 运行时空指针
-        if("${DIR_NAME}" STREQUAL "index")
-            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${DIR_NAME}")
-            message(STATUS "Create dir: build/${DIR_NAME} (runtime)")
-        else()
-            execute_process(
-                COMMAND ${CMAKE_COMMAND} -E create_symlink
-                    "${CMAKE_SOURCE_DIR}/${DIR_NAME}"
-                    "${CMAKE_BINARY_DIR}/${DIR_NAME}"
-            )
-            message(STATUS "Symlink: build/${DIR_NAME} -> ../${DIR_NAME}")
-        endif()
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "${CMAKE_SOURCE_DIR}/${DIR_NAME}"
+                "${CMAKE_BINARY_DIR}/${DIR_NAME}"
+        )
+        message(STATUS "Symlink: build/${DIR_NAME} -> ../${DIR_NAME}")
+    endif()
+endforeach()
+
+# 运行时创建目录 → 在 build/ 下预创建空目录，保证从 build/ 启动也正确
+foreach(DIR_NAME index logs)
+    if(NOT EXISTS "${CMAKE_BINARY_DIR}/${DIR_NAME}")
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${DIR_NAME}")
+        message(STATUS "Create dir: build/${DIR_NAME}")
     endif()
 endforeach()
 

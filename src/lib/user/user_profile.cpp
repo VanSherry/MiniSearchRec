@@ -5,6 +5,7 @@
 
 #include "lib/user/user_profile.h"
 #include "framework/app_context.h"
+#include "framework/config/config_manager.h"
 #include "utils/logger.h"
 #include <algorithm>
 #include <fstream>
@@ -16,7 +17,11 @@ namespace minisearchrec {
 
 // 用文件系统序列化 proto（生产环境应用 Redis/DB）
 static std::string ProfilePath(const std::string& uid) {
-    return "./data/user_profiles/" + uid + ".pb";
+    std::string data_dir = ConfigManager::Instance().GetGlobalConfig().index.data_dir;
+    if (data_dir.empty()) data_dir = "./data/";
+    // 确保以 / 结尾
+    if (data_dir.back() != '/') data_dir += '/';
+    return data_dir + "user_profiles/" + uid + ".pb";
 }
 
 bool UserProfileManager::LoadProfile(const std::string& uid, UserProfile& profile) {
@@ -51,7 +56,10 @@ bool UserProfileManager::SaveProfile(const UserProfile& profile) {
 
     // 确保目录存在
     try {
-        std::filesystem::create_directories("./data/user_profiles");
+        std::string data_dir = ConfigManager::Instance().GetGlobalConfig().index.data_dir;
+        if (data_dir.empty()) data_dir = "./data/";
+        if (data_dir.back() != '/') data_dir += '/';
+        std::filesystem::create_directories(data_dir + "user_profiles");
     } catch (...) {}
 
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);

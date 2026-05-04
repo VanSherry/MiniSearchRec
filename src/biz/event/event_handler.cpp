@@ -9,6 +9,7 @@
 #include "biz/event/event_handler.h"
 #include "lib/user/user_profile.h"
 #include "framework/app_context.h"
+#include "framework/config/config_manager.h"
 #include "lib/storage/doc_cooccur_store.h"
 #include "lib/storage/query_stats_store.h"
 #include "utils/logger.h"
@@ -36,14 +37,20 @@ public:
     }
 
     // 初始化（幂等）
-    bool Init(const std::string& db_path = "./data/events.db") {
+    bool Init(const std::string& db_path = "") {
         std::lock_guard<std::recursive_mutex> lk(mu_);
         if (db_) return true;
 
-        try { std::filesystem::create_directories("./data"); } catch (...) {}
+        // 从配置获取 data_dir
+        std::string data_dir = ConfigManager::Instance().GetGlobalConfig().index.data_dir;
+        if (data_dir.empty()) data_dir = "./data/";
+        if (data_dir.back() != '/') data_dir += '/';
 
-        if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
-            LOG_ERROR("EventDB: failed to open {}", db_path);
+        std::string real_path = db_path.empty() ? data_dir + "events.db" : db_path;
+        try { std::filesystem::create_directories(data_dir); } catch (...) {}
+
+        if (sqlite3_open(real_path.c_str(), &db_) != SQLITE_OK) {
+            LOG_ERROR("EventDB: failed to open {}", real_path);
             db_ = nullptr;
             return false;
         }
