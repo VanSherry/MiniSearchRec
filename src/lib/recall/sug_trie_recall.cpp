@@ -5,16 +5,15 @@
 namespace minisearchrec {
 
 int SugTrieRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
-    auto* ss = dynamic_cast<const SearchSession*>(ctx->session);
-    if (!ss || ss->query.empty()) return 0;
+    if (!ctx->session || ctx->session->query.empty()) return 0;
 
-    auto candidates = SugTrie::Instance().Search(ss->query, 50);
-    if (candidates.empty()) { LOG_INFO("SugTrieRecall: no results for '{}'", ss->query); return 0; }
+    auto candidates = SugTrie::Instance().Search(ctx->session->query, 50);
+    if (candidates.empty()) { LOG_INFO("SugTrieRecall: no results for '{}'", ctx->session->query); return 0; }
 
     float max_freq = 1.0f;
     for (const auto* e : candidates) max_freq = std::max(max_freq, (float)e->freq);
     int64_t now = std::time(nullptr);
-    float prefix_len = (float)ss->query.size();
+    float prefix_len = (float)ctx->session->query.size();
 
     std::vector<DocCandidate> docs;
     for (const auto* e : candidates) {
@@ -42,7 +41,7 @@ int SugTrieRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
 
     ctx->output->items = std::move(docs);
     ctx->output->item_count = ctx->output->doc_scores.size();
-    LOG_INFO("SugTrieRecall: prefix='{}', results={}", ss->query, ctx->output->item_count);
+    LOG_INFO("SugTrieRecall: prefix='{}', results={}", ctx->session->query, ctx->output->item_count);
     return 0;
 }
 
