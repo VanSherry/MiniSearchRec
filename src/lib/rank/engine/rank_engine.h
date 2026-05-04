@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <memory>
+#include <functional>
 #include <yaml-cpp/yaml.h>
 
 namespace minisearchrec {
