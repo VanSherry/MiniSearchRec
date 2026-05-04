@@ -1,42 +1,96 @@
 // ============================================================
 // MiniSearchRec - 文档存储（SQLite 封装）实现
+//
+// 线程安全策略：
+//   - 读操作：每个线程通过 thread_local 持有独立的 sqlite3* 连接，
+//     SQLite WAL 模式天然支持多连接并发读，各线程互不干扰
+//   - 写操作：使用独占写锁 + 专用写连接，同一时刻只有一个线程写
+//   - Open/Close：非线程安全，仅在启动/关闭时调用
 // ============================================================
 
 #include "lib/index/doc_store.h"
 #include <sqlite3.h>
 #include <iostream>
 #include <sstream>
+#include <shared_mutex>
+#include <unordered_set>
 
 namespace minisearchrec {
 
+// ============================================================
+// Impl：内部实现
+// ============================================================
 struct DocStore::Impl {
-    sqlite3* db = nullptr;
+    // 数据库路径（用于 thread_local 连接懒创建）
+    std::string db_path;
+
+    // 专用写连接（仅写操作使用，由 write_mutex_ 独占保护）
+    sqlite3* write_db = nullptr;
+
+    // 写操作独占锁
+    std::shared_mutex write_mutex;
+
+    // 已打开标志
+    bool opened = false;
+
+    // thread_local 读连接的管理：通过 GetReadConn() 获取
+    // 每个线程首次调用时自动创建，线程退出时自动销毁
 };
 
+namespace {
+
+// ----------------------------------------------------------
+// 打开一个 SQLite 连接并设置 WAL 模式
+// ----------------------------------------------------------
+sqlite3* OpenSqliteConn(const std::string& db_path) {
+    sqlite3* db = nullptr;
+    int rc = sqlite3_open(db_path.c_str(), &db);
+    if (rc != SQLITE_OK) {
+        std::cerr << "[DocStore] Failed to open read connection: "
+                  << (db ? sqlite3_errmsg(db) : "unknown") << "\n";
+        if (db) { sqlite3_close(db); }
+        return nullptr;
+    }
+    sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
+    return db;
+}
+
+// ----------------------------------------------------------
+// 关闭 thread_local 读连接的清理器
+// ----------------------------------------------------------
+struct ThreadConnCleaner {
+    sqlite3* conn = nullptr;
+    ~ThreadConnCleaner() {
+        if (conn) {
+            sqlite3_close(conn);
+            conn = nullptr;
+        }
+    }
+};
+
+} // anonymous namespace
+
+// ============================================================
+// 构造 / 析构
+// ============================================================
 DocStore::DocStore() : impl_(new Impl()) {}
 
 DocStore::~DocStore() {
     Close();
 }
 
+// ============================================================
+// Open / Close
+// ============================================================
 bool DocStore::Open(const std::string& db_path) {
-    int rc = sqlite3_open(db_path.c_str(), &impl_->db);
-    if (rc != SQLITE_OK) {
-        std::cerr << "[DocStore] Failed to open database: "
-                  << (impl_->db ? sqlite3_errmsg(impl_->db) : "unknown") << "\n";
-        // sqlite3_open 失败时句柄可能非 null，必须关闭
-        if (impl_->db) {
-            sqlite3_close(impl_->db);
-            impl_->db = nullptr;
-        }
-        return false;
-    }
+    impl_->db_path = db_path;
 
-    // WAL 模式提升并发读写性能
-    sqlite3_exec(impl_->db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-    sqlite3_exec(impl_->db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
+    // 打开写连接
+    impl_->write_db = OpenSqliteConn(db_path);
+    if (!impl_->write_db) return false;
 
-    // 创建文档表
+    // 建表（通过写连接执行）
     const char* sql = R"(
         CREATE TABLE IF NOT EXISTS docs (
             doc_id TEXT PRIMARY KEY,
@@ -54,66 +108,56 @@ bool DocStore::Open(const std::string& db_path) {
     )";
 
     char* err_msg = nullptr;
-    rc = sqlite3_exec(impl_->db, sql, nullptr, nullptr, &err_msg);
+    int rc = sqlite3_exec(impl_->write_db, sql, nullptr, nullptr, &err_msg);
     if (rc != SQLITE_OK) {
         std::cerr << "[DocStore] Failed to create table: " << err_msg << "\n";
         sqlite3_free(err_msg);
-        sqlite3_close(impl_->db);  // BUG-9 修复：建表失败也必须关闭句柄
-        impl_->db = nullptr;
+        sqlite3_close(impl_->write_db);
+        impl_->write_db = nullptr;
         return false;
     }
 
+    impl_->opened = true;
     return true;
 }
 
 void DocStore::Close() {
-    if (impl_->db) {
-        sqlite3_close(impl_->db);
-        impl_->db = nullptr;
+    impl_->opened = false;
+
+    // 关闭写连接
+    if (impl_->write_db) {
+        sqlite3_close(impl_->write_db);
+        impl_->write_db = nullptr;
     }
+    impl_->db_path.clear();
+
+    // 注意：thread_local 读连接由各线程的 ThreadConnCleaner
+    // 在线程退出时自动关闭，无需在此手动管理
 }
 
-bool DocStore::PutDoc(const Document& doc) {
-    if (!impl_->db) return false;
+// ============================================================
+// 读操作：通过 thread_local 连接实现无锁并发读
+// ============================================================
 
-    const char* sql = R"(
-        INSERT OR REPLACE INTO docs
-        (doc_id, title, content, author, publish_time, category, tags,
-         quality_score, click_count, like_count, content_length)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    )";
+// 获取当前线程的读连接（懒创建）
+sqlite3* DocStore::GetReadConn() {
+    if (!impl_->opened || impl_->db_path.empty()) return nullptr;
 
-    sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_text(stmt, 1, doc.doc_id().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, doc.title().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, doc.content().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, doc.author().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 5, doc.publish_time());
-    sqlite3_bind_text(stmt, 6, doc.category().c_str(), -1, SQLITE_TRANSIENT);
-
-    // tags 序列化为逗号分隔
-    std::string tags_str;
-    for (int i = 0; i < doc.tags_size(); ++i) {
-        if (i > 0) tags_str += ",";
-        tags_str += doc.tags(i);
+    // 每个 thread_local 连接配套一个 cleaner，线程退出时自动关闭
+    thread_local ThreadConnCleaner cleaner;
+    if (!cleaner.conn) {
+        cleaner.conn = OpenSqliteConn(impl_->db_path);
     }
-    sqlite3_bind_text(stmt, 7, tags_str.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_double(stmt, 8, doc.quality_score());
-    sqlite3_bind_int64(stmt, 9, doc.click_count());
-    sqlite3_bind_int64(stmt, 10, doc.like_count());
-    sqlite3_bind_int(stmt, 11, doc.content_length());
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    return rc == SQLITE_DONE;
+    return cleaner.conn;
 }
 
 bool DocStore::GetDoc(const std::string& doc_id, Document& doc) {
-    if (!impl_->db) return false;
+    // 加读锁：防止读时正在写表结构等极端情况，
+    // 同时保证 impl_->opened / db_path 的可见性
+    std::shared_lock<std::shared_mutex> rlk(impl_->write_mutex);
+
+    sqlite3* db = GetReadConn();
+    if (!db) return false;
 
     const char* sql = R"(
         SELECT doc_id, title, content, author, publish_time, category, tags,
@@ -122,7 +166,7 @@ bool DocStore::GetDoc(const std::string& doc_id, Document& doc) {
     )";
 
     sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, doc_id.c_str(), -1, SQLITE_TRANSIENT);
@@ -161,28 +205,16 @@ bool DocStore::GetDoc(const std::string& doc_id, Document& doc) {
     return rc == SQLITE_ROW;
 }
 
-bool DocStore::DeleteDoc(const std::string& doc_id) {
-    if (!impl_->db) return false;
-
-    const char* sql = "DELETE FROM docs WHERE doc_id = ?";
-    sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_text(stmt, 1, doc_id.c_str(), -1, SQLITE_TRANSIENT);
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    return rc == SQLITE_DONE;
-}
-
 std::vector<std::string> DocStore::GetAllDocIds() {
+    std::shared_lock<std::shared_mutex> rlk(impl_->write_mutex);
+
     std::vector<std::string> ids;
-    if (!impl_->db) return ids;
+    sqlite3* db = GetReadConn();
+    if (!db) return ids;
 
     const char* sql = "SELECT doc_id FROM docs";
     sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return ids;
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -195,11 +227,14 @@ std::vector<std::string> DocStore::GetAllDocIds() {
 }
 
 int64_t DocStore::GetDocCount() {
-    if (!impl_->db) return 0;
+    std::shared_lock<std::shared_mutex> rlk(impl_->write_mutex);
+
+    sqlite3* db = GetReadConn();
+    if (!db) return 0;
 
     const char* sql = "SELECT COUNT(*) FROM docs";
     sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return 0;
 
     int64_t count = 0;
@@ -209,6 +244,123 @@ int64_t DocStore::GetDocCount() {
 
     sqlite3_finalize(stmt);
     return count;
+}
+
+// ============================================================
+// 写操作：独占锁 + 专用写连接
+// ============================================================
+
+bool DocStore::PutDoc(const Document& doc) {
+    std::unique_lock<std::shared_mutex> wlk(impl_->write_mutex);
+
+    if (!impl_->write_db) return false;
+
+    const char* sql = R"(
+        INSERT OR REPLACE INTO docs
+        (doc_id, title, content, author, publish_time, category, tags,
+         quality_score, click_count, like_count, content_length)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(impl_->write_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, doc.doc_id().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, doc.title().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, doc.content().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, doc.author().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 5, doc.publish_time());
+    sqlite3_bind_text(stmt, 6, doc.category().c_str(), -1, SQLITE_TRANSIENT);
+
+    // tags 序列化为逗号分隔
+    std::string tags_str;
+    for (int i = 0; i < doc.tags_size(); ++i) {
+        if (i > 0) tags_str += ",";
+        tags_str += doc.tags(i);
+    }
+    sqlite3_bind_text(stmt, 7, tags_str.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 8, doc.quality_score());
+    sqlite3_bind_int64(stmt, 9, doc.click_count());
+    sqlite3_bind_int64(stmt, 10, doc.like_count());
+    sqlite3_bind_int(stmt, 11, doc.content_length());
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    return rc == SQLITE_DONE;
+}
+
+bool DocStore::PutDocs(const std::vector<Document>& docs) {
+    std::unique_lock<std::shared_mutex> wlk(impl_->write_mutex);
+
+    if (!impl_->write_db) return false;
+
+    // 开启事务批量写入
+    sqlite3_exec(impl_->write_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+
+    const char* sql = R"(
+        INSERT OR REPLACE INTO docs
+        (doc_id, title, content, author, publish_time, category, tags,
+         quality_score, click_count, like_count, content_length)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(impl_->write_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        sqlite3_exec(impl_->write_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    int ok_count = 0;
+    for (const auto& doc : docs) {
+        sqlite3_bind_text(stmt, 1, doc.doc_id().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, doc.title().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, doc.content().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, doc.author().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 5, doc.publish_time());
+        sqlite3_bind_text(stmt, 6, doc.category().c_str(), -1, SQLITE_TRANSIENT);
+
+        std::string tags_str;
+        for (int i = 0; i < doc.tags_size(); ++i) {
+            if (i > 0) tags_str += ",";
+            tags_str += doc.tags(i);
+        }
+        sqlite3_bind_text(stmt, 7, tags_str.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_double(stmt, 8, doc.quality_score());
+        sqlite3_bind_int64(stmt, 9, doc.click_count());
+        sqlite3_bind_int64(stmt, 10, doc.like_count());
+        sqlite3_bind_int(stmt, 11, doc.content_length());
+
+        rc = sqlite3_step(stmt);
+        sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+
+        if (rc == SQLITE_DONE) ++ok_count;
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_exec(impl_->write_db, "COMMIT;", nullptr, nullptr, nullptr);
+
+    return ok_count > 0;
+}
+
+bool DocStore::DeleteDoc(const std::string& doc_id) {
+    std::unique_lock<std::shared_mutex> wlk(impl_->write_mutex);
+
+    if (!impl_->write_db) return false;
+
+    const char* sql = "DELETE FROM docs WHERE doc_id = ?";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(impl_->write_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, doc_id.c_str(), -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    return rc == SQLITE_DONE;
 }
 
 } // namespace minisearchrec

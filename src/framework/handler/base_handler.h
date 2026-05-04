@@ -7,7 +7,7 @@
 //
 //   CanSearch (含 InterposeCheckQuery)
 //     → PreSearch
-//     → DoSearch (召回)
+//     → DoSearch (DAG 并行召回 + MergeRecall)
 //     → DoRank (排序)
 //     → DoRerank (重排序)
 //     → DoInterpose (人工干预: 封禁/仅出/过滤)
@@ -27,7 +27,9 @@
 #include <string>
 #include <vector>
 #include "framework/session/session.h"
-#include "framework/processor/processor_pipeline.h"
+#include "framework/processor/dag_pipeline.h"
+#include "lib/rank/base/rank_manager.h"
+#include "lib/rank/base/rank.h"
 
 namespace minisearchrec {
 namespace framework {
@@ -114,6 +116,11 @@ protected:
     virtual int32_t DoSearch(Session* session) const;
     virtual int32_t CommonDoSearch(Session* session) const;
     virtual int32_t ExtraDoSearch(Session* session) const;
+
+    // 合并 DAG 并行召回结果到 Session
+    // 子业务可 override 实现自己的融合策略（如 RRF、加权融合等）
+    virtual int32_t MergeRecall(Session* session,
+                                const std::vector<RecallOutputPtr>& outputs) const;
 
     // ── 4. Rank 阶段（排序）──
     virtual int32_t DoRank(Session* session) const;

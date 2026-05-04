@@ -1,5 +1,5 @@
 // ============================================================
-// MiniSearchRec - 倒排索引召回处理器实现
+// MiniSearchRec - 倒排索引召回处理器实现（DAG 并行模式）
 // ============================================================
 
 #include "lib/recall/inverted_recall.h"
@@ -20,12 +20,11 @@ int InvertedRecallProcessor::Init(const YAML::Node& config) {
     if (config["min_term_freq"]) {
         min_term_freq_ = config["min_term_freq"].as<int>(1);
     }
-    // Init 时可能还没建好索引，Process 时会延迟获取
     index_ = AppContext::Instance().GetInvertedIndex();
     return 0;
 }
 
-int InvertedRecallProcessor::Process(Session& session) {
+int InvertedRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
     if (!enabled_) return 0;
     if (!index_) {
         index_ = AppContext::Instance().GetInvertedIndex();
@@ -35,7 +34,10 @@ int InvertedRecallProcessor::Process(Session& session) {
         }
     }
 
-    const auto& terms = session.qp_info.terms;
+    auto* ss = dynamic_cast<const SearchSession*>(ctx->session);
+    if (!ss) return -1;
+
+    const auto& terms = ss->qp_info.terms;
     if (terms.empty()) {
         return 0;
     }
@@ -44,19 +46,19 @@ int InvertedRecallProcessor::Process(Session& session) {
               terms.size(), index_->GetDocCount(), index_->GetTermCount());
 
     auto doc_ids = index_->Search(terms, max_recall_);
-    session.search_counts.recall_source_counts["inverted_index"] = doc_ids.size();
 
     LOG_INFO("InvertedRecall: found {} docs for query terms={}", doc_ids.size(), terms.size());
 
-    // 获取 DocStore 用于填充文档元数据
     auto doc_store = AppContext::Instance().GetDocStore();
+
+    std::vector<DocCandidate> candidates;
+    candidates.reserve(doc_ids.size());
 
     for (const auto& doc_id : doc_ids) {
         DocCandidate cand;
         cand.doc_id = doc_id;
         cand.recall_source = "inverted_index";
 
-        // 计算召回分数（基于命中词数和 IDF）
         auto postings = index_->GetDocPostings(doc_id);
         float recall_score = 0.0f;
         for (const auto& term : terms) {
@@ -68,7 +70,6 @@ int InvertedRecallProcessor::Process(Session& session) {
         }
         cand.recall_score = recall_score;
 
-        // 从 DocStore 填充文档元数据
         if (doc_store) {
             Document doc;
             if (doc_store->GetDoc(doc_id, doc)) {
@@ -83,8 +84,12 @@ int InvertedRecallProcessor::Process(Session& session) {
             }
         }
 
-        session.recall_results.push_back(cand);
+        ctx->output->doc_scores.emplace_back(doc_id, recall_score);
+        candidates.push_back(std::move(cand));
     }
+
+    ctx->output->items = std::move(candidates);
+    ctx->output->item_count = ctx->output->doc_scores.size();
 
     return 0;
 }

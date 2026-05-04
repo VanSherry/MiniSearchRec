@@ -14,24 +14,58 @@ std::vector<DocCandidate> RecallFusion::FuseByRRF(
     int max_total,
     int k
 ) {
-    // fused_scores: doc_id -> (融合分数, 召回来源列表)
-    std::unordered_map<std::string, std::pair<float, std::string>> fused_scores;
+    // fused_scores: doc_id -> (融合分数, 召回来源列表, 候选文档)
+    struct FusedEntry {
+        float score = 0.0f;
+        std::string sources;
+        DocCandidate cand;  // 保留文档字段
+    };
+    std::unordered_map<std::string, FusedEntry> fused_map;
 
     for (const auto& results : multi_results) {
         for (int rank = 0; rank < (int)results.size(); ++rank) {
             const auto& cand = results[rank];
             float rrf_score = 1.0f / (k + rank + 1);
 
-            auto it = fused_scores.find(cand.doc_id);
-            if (it == fused_scores.end()) {
-                std::string sources = cand.recall_source.empty()
+            auto it = fused_map.find(cand.doc_id);
+            if (it == fused_map.end()) {
+                FusedEntry entry;
+                entry.score = rrf_score;
+                entry.sources = cand.recall_source.empty()
                                          ? "unknown"
                                          : cand.recall_source;
-                fused_scores[cand.doc_id] = {rrf_score, sources};
+                entry.cand = cand;  // 保留完整字段
+                fused_map[cand.doc_id] = std::move(entry);
             } else {
-                it->second.first += rrf_score;
+                it->second.score += rrf_score;
                 if (!cand.recall_source.empty()) {
-                    it->second.second += " " + cand.recall_source;
+                    it->second.sources += " " + cand.recall_source;
+                }
+                // 如果当前候选有更多信息（字段非空），则补充
+                auto& existing = it->second.cand;
+                if (existing.title.empty() && !cand.title.empty()) {
+                    existing.title = cand.title;
+                }
+                if (existing.content_snippet.empty() && !cand.content_snippet.empty()) {
+                    existing.content_snippet = cand.content_snippet;
+                }
+                if (existing.author.empty() && !cand.author.empty()) {
+                    existing.author = cand.author;
+                }
+                if (existing.category.empty() && !cand.category.empty()) {
+                    existing.category = cand.category;
+                }
+                if (existing.quality_score == 0.0f && cand.quality_score != 0.0f) {
+                    existing.quality_score = cand.quality_score;
+                }
+                if (existing.click_count == 0 && cand.click_count != 0) {
+                    existing.click_count = cand.click_count;
+                }
+                if (existing.like_count == 0 && cand.like_count != 0) {
+                    existing.like_count = cand.like_count;
+                }
+                if (existing.publish_time == 0 && cand.publish_time != 0) {
+                    existing.publish_time = cand.publish_time;
                 }
             }
         }
@@ -39,14 +73,12 @@ std::vector<DocCandidate> RecallFusion::FuseByRRF(
 
     // 转换为向量并排序
     std::vector<DocCandidate> fused;
-    fused.reserve(fused_scores.size());
+    fused.reserve(fused_map.size());
 
-    for (const auto& [doc_id, score_source] : fused_scores) {
-        DocCandidate cand;
-        cand.doc_id = doc_id;
-        cand.recall_score = score_source.first;
-        cand.recall_source = score_source.second;
-        fused.push_back(cand);
+    for (auto& [doc_id, entry] : fused_map) {
+        entry.cand.recall_score = entry.score;
+        entry.cand.recall_source = entry.sources;
+        fused.push_back(std::move(entry.cand));
     }
 
     std::sort(fused.begin(), fused.end(),

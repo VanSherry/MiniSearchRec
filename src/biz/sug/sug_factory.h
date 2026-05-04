@@ -1,34 +1,32 @@
-// ============================================================
-// MiniSearchRec - Sug 排序工厂
-// 对标：通用搜索排序服务
-// ============================================================
-
 #ifndef MINISEARCHREC_SUG_FACTORY_H
 #define MINISEARCHREC_SUG_FACTORY_H
 
-#include "lib/rank/base/rank_factory.h"
 #include "lib/rank/base/rank.h"
-#include "biz/sug/sug_rank_item.h"
-#include "biz/sug/sug_context.h"
+#include "lib/rank/base/rank_factory.h"
 
 namespace minisearchrec {
 
+// ============================================================
+// SugRank：搜索建议排序 Pipeline
+// PrepareInput: 从 any_store 读取 DocCandidate 转为 BaseRankItem
+// GenerateRankOutput: 排序截断，写入 any_store
+// ============================================================
 class SugRank : public rank::Rank {
 public:
-    ~SugRank() override = default;
     std::string RankName() const override { return "SugRank"; }
 
-    // Sug 的 PrepareInput：从 Trie 召回候选词并填入 RankVector
+protected:
     int PrepareInput() override;
+    int GenerateRankOutput() override;
 };
 
+// ============================================================
+// SugFactory：搜索建议排序工厂
+// ============================================================
 class SugFactory : public rank::RankFactory {
 public:
-    ~SugFactory() override = default;
-
-    rank::BaseRankItem* CreateItem() const override { return new SugRankItem(); }
-    rank::RankVector* CreateVector() const override { return new rank::RankVector(); }
-    rank::RankContext* CreateContext() const override { return new SugContext(); }
+    rank::BaseRankItem* CreateItem() const override { return new rank::BaseRankItem(); }
+    rank::RankContext* CreateContext() const override { return new rank::RankContext(); }
     rank::Rank* CreateRank() const override { return new SugRank(); }
 };
 

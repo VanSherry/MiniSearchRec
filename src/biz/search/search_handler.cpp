@@ -4,7 +4,7 @@
 // 架构：
 //   框架 BaseHandler::Search() 主流程模板方法
 //     → PreSearch: ExtraPreSearch 做 QP + AB
-//     → DoSearch:  CommonDoSearch 调用框架 recall_pipeline
+//     → DoSearch:  recall_dag (DAG 并行) + MergeRecall (RRF 融合)
 //     → DoRank:    CommonDoRank 调用框架 rank_pipeline + AfterRank 截断
 //     → DoRerank:  CommonDoRerank 调用框架 rerank_pipeline + AfterRerank 截断
 //     → DoInterpose: 调用框架 filter_pipeline + postprocess_pipeline
@@ -14,10 +14,16 @@
 // ============================================================
 
 #include "biz/search/search_handler.h"
+#include "biz/search/search_factory.h"
+#include "biz/search/search_context.h"
+#include "lib/rank/scorer/lgbm_rank_processor.h"
+#include "framework/processor/dag_pipeline.h"
 #include "framework/processor/processor_pipeline.h"
 #include "framework/config/config_manager.h"
 #include "framework/app_context.h"
 #include "lib/query/query_parser.h"
+#include "lib/recall/recall_fusion.h"
+#include "lib/index/doc_store.h"
 #include "utils/logger.h"
 
 #include <json/json.h>
@@ -28,10 +34,11 @@ namespace minisearchrec {
 
 // ============================================================
 // ExtraInit：业务初始化（框架注册 Handler 时自动调用）
-// Search 的 Processor Pipeline 由框架从 biz/search.yaml 自动加载，无需手动注册
+// rank_config 由 PipelineManager 自动从 biz/search.yaml 加载到 RankManager
+// SearchFactory 已通过 REGISTER_RANK_FACTORY 静态注册
 // ============================================================
 int32_t SearchBizHandler::ExtraInit() {
-    LOG_INFO("SearchBizHandler::ExtraInit: ready (pipeline config-driven)");
+    LOG_INFO("SearchBizHandler::ExtraInit: ready (rank framework driven)");
     return 0;
 }
 
@@ -72,21 +79,62 @@ int32_t SearchBizHandler::ExtraPreSearch(framework::Session* session) const {
 }
 
 // ============================================================
-// CommonDoSearch：调用框架 recall_pipeline
-// 对标通用搜索框架 DoSearch
+// MergeRecall：DAG 并行召回结果合并
+// 使用 RRF (Reciprocal Rank Fusion) 融合多路召回结果
 // ============================================================
-int32_t SearchBizHandler::CommonDoSearch(framework::Session* session) const {
-    // 框架层会自动根据 business_type="search" 找到 recall_pipeline 并执行
-    auto* pipeline_cfg = framework::PipelineManager::Instance().GetConfig("search");
-    if (!pipeline_cfg || pipeline_cfg->recall_pipeline.Size() == 0) {
-        LOG_WARN("SearchBizHandler::CommonDoSearch: no recall pipeline configured");
-        return 0;
+int32_t SearchBizHandler::MergeRecall(
+    framework::Session* session,
+    const std::vector<framework::RecallOutputPtr>& outputs) const {
+    auto* ss = GetSearchSession(session);
+    if (!ss) return 0;
+
+    // 收集各路召回的 DocCandidate
+    std::vector<std::vector<DocCandidate>> multi_results;
+    for (const auto& output : outputs) {
+        try {
+            auto& cands = std::any_cast<std::vector<DocCandidate>&>(output->items);
+            if (!cands.empty()) {
+                ss->search_counts.recall_source_counts[output->processor_name] =
+                    static_cast<int>(cands.size());
+                multi_results.push_back(std::move(cands));
+            }
+        } catch (const std::bad_any_cast&) {
+            LOG_WARN("MergeRecall: cannot cast output from '{}'", output->processor_name);
+        }
     }
-    return pipeline_cfg->recall_pipeline.Execute(session);
+
+    // RRF 融合
+    ss->recall_results = RecallFusion::FuseByRRF(multi_results);
+    ss->search_counts.recall_count = static_cast<int>(ss->recall_results.size());
+
+    // 补充缺失的文档字段（DAG 并行召回中，部分算子可能未填充文档详情）
+    auto doc_store = AppContext::Instance().GetDocStore();
+    if (doc_store) {
+        for (auto& cand : ss->recall_results) {
+            if (!cand.title.empty()) continue;
+            Document doc;
+            if (doc_store->GetDoc(cand.doc_id, doc)) {
+                cand.title           = doc.title();
+                cand.content_snippet = doc.content().substr(0, 200);
+                cand.author          = doc.author();
+                cand.publish_time    = doc.publish_time();
+                cand.category        = doc.category();
+                cand.quality_score   = doc.quality_score();
+                cand.click_count     = doc.click_count();
+                cand.like_count      = doc.like_count();
+            }
+        }
+    }
+
+    LOG_INFO("MergeRecall: merged {} sources → {} candidates",
+             multi_results.size(), ss->recall_results.size());
+    return 0;
 }
 
 // ============================================================
 // AfterRank：粗排后截断
+// GenerateRankOutput 已将 coarse_score 写入 DocCandidate
+// 这里只排序 + 截断，写入 coarse_rank_results
 // ============================================================
 int32_t SearchBizHandler::AfterRank(framework::Session* session) const {
     auto* ss = GetSearchSession(session);
@@ -111,24 +159,26 @@ int32_t SearchBizHandler::AfterRank(framework::Session* session) const {
     ss->coarse_rank_results = ss->recall_results;
     ss->search_counts.coarse_count = ss->coarse_rank_results.size();
 
+    LOG_INFO("AfterRank: coarse_count={}", ss->search_counts.coarse_count);
     return 0;
 }
 
 // ============================================================
 // AfterRerank：精排后截断
+// GenerateRankOutput 已将 fine_score / final_score 写入 DocCandidate
+// 这里只排序 + 截断
 // ============================================================
 int32_t SearchBizHandler::AfterRerank(framework::Session* session) const {
     auto* ss = GetSearchSession(session);
     if (!ss) return 0;
 
-    // 按 fine_score 排序
+    // final_score 在 GenerateRankOutput 中已赋值
     for (auto& c : ss->coarse_rank_results) {
-        if (c.fine_score == 0.0f) c.fine_score = c.coarse_score;
-        c.final_score = c.fine_score;
+        if (c.final_score == 0.0f) c.final_score = c.fine_score > 0 ? c.fine_score : c.coarse_score;
     }
     std::sort(ss->coarse_rank_results.begin(), ss->coarse_rank_results.end(),
         [](const DocCandidate& a, const DocCandidate& b) {
-            return a.fine_score > b.fine_score;
+            return a.final_score > b.final_score;
         });
 
     int top_k = 100;
@@ -142,6 +192,7 @@ int32_t SearchBizHandler::AfterRerank(framework::Session* session) const {
     ss->fine_rank_results = ss->coarse_rank_results;
     ss->search_counts.fine_count = ss->fine_rank_results.size();
 
+    LOG_INFO("AfterRerank: fine_count={}", ss->search_counts.fine_count);
     return 0;
 }
 
@@ -232,28 +283,20 @@ int32_t SearchBizHandler::SetResponse(framework::Session* session) const {
 }
 
 // ============================================================
-// ReloadRankModel：通过框架 PipelineManager 热更新
+// ReloadRankModel：精排模型热更新
+// 通过 LGBMRankProcessor 静态方法，不依赖框架 Pipeline
 // ============================================================
 int ReloadRankModel(const std::string& new_model_path) {
-    auto* pipeline_cfg = framework::PipelineManager::Instance().GetConfig("search");
-    if (!pipeline_cfg) {
-        LOG_WARN("ReloadRankModel: no search pipeline config");
+    if (new_model_path.empty()) {
+        LOG_WARN("ReloadRankModel: empty model path");
         return 0;
     }
-
-    // 在 rerank_pipeline 中找到 LGBMScorerProcessor 并热更新
-    int count = 0;
-    for (auto& proc : pipeline_cfg->rerank_pipeline.GetProcessors()) {
-        if (!proc) continue;
-        if (proc->Name() == "LGBMScorerProcessor") {
-            // 触发 HotReload（需要 LGBMScorerProcessor 实现 HotReload 方法）
-            // TODO: 通过 dynamic_cast 调用特定方法
-            LOG_INFO("ReloadRankModel: found LGBMScorerProcessor, reload path={}",
-                     new_model_path);
-            ++count;
-        }
+    if (!LGBMRankProcessor::HotReload(new_model_path)) {
+        LOG_ERROR("ReloadRankModel: HotReload failed: {}", new_model_path);
+        return -1;
     }
-    return count;
+    LOG_INFO("ReloadRankModel: LGBM model reloaded from {}", new_model_path);
+    return 1;
 }
 
 } // namespace minisearchrec

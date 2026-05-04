@@ -12,6 +12,7 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <yaml-cpp/yaml.h>
 #include "lib/rank/base/rank_context.h"
 
 namespace minisearchrec {
@@ -22,7 +23,8 @@ namespace rank {
 // ============================================================
 struct ProcessorConfig {
     std::string name;
-    std::string json_params;  // 可选的 JSON 参数
+    float weight = 1.0f;           // 排序融合权重
+    YAML::Node params;             // 自定义参数
 };
 
 // ============================================================

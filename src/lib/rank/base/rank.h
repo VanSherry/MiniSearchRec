@@ -28,6 +28,10 @@ public:
     // 执行排序 Pipeline
     virtual int Process();
 
+    // 设置阶段名称（"coarse" 或 "fine"），影响 GetProcessors 路由
+    void SetStage(const std::string& stage) { stage_name_ = stage; }
+    const std::string& GetStage() const { return stage_name_; }
+
     // 获取上下文（Handler 用来读取结果）
     RankContextPtr GetContext() const { return ctx_; }
 
@@ -41,9 +45,11 @@ protected:
 
     // ── Factory 和 Processor 获取（子类可 override）──
     virtual const RankFactory* GetFactory(const std::string& business_type);
-    virtual std::vector<ProcessorConfig> GetProcessors(const std::string& business_type);
+    virtual std::vector<ProcessorConfig> GetProcessors(const std::string& business_type,
+                                                        const std::string& stage = "coarse");
 
     RankContextPtr ctx_;
+    std::string stage_name_ = "coarse";
 };
 
 } // namespace rank

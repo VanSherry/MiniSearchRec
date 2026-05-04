@@ -4,7 +4,7 @@
 //
 // 彻底走 framework::BaseHandler 主流程 + 框架 ProcessorPipeline：
 //   PreSearch  → QP 理解 + AB 实验
-//   DoSearch   → 框架自动调度 recall_pipeline（从 recall.yaml 配置）
+//   DoSearch   → 框架自动调度 recall_dag（DAG 并行召回）+ MergeRecall（RRF 融合）
 //   DoRank     → 框架自动调度 rank_pipeline（从 rank.yaml 配置）
 //   DoRerank   → 框架自动调度 rerank_pipeline（从 rank.yaml 配置）
 //   DoInterpose → 框架自动调度 filter_pipeline + postprocess_pipeline
@@ -22,6 +22,7 @@
 #include "framework/handler/base_handler.h"
 #include "framework/class_register.h"
 #include "biz/search/search_session.h"
+#include "lib/rank/base/rank_manager.h"
 
 namespace minisearchrec {
 
@@ -34,9 +35,9 @@ protected:
     // PreSearch：QP 理解 + AB 实验染色
     int32_t ExtraPreSearch(framework::Session* session) const override;
 
-    // DoSearch：框架默认调度 recall_pipeline，
-    //           这里额外做多路并行合并（override CommonDoSearch）
-    int32_t CommonDoSearch(framework::Session* session) const override;
+    // MergeRecall：DAG 并行召回结果合并（RRF 融合）
+    int32_t MergeRecall(framework::Session* session,
+                        const std::vector<framework::RecallOutputPtr>& outputs) const override;
 
     // DoRank：框架默认调度 rank_pipeline，
     //         这里额外做粗排截断

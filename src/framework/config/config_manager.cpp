@@ -87,6 +87,15 @@ bool ConfigManager::LoadGlobalConfig(const std::string& path) {
                 emb["max_seq_len"].as<int>(512);
         }
 
+        if (config["pipeline"]) {
+            global_config_.pipeline.final_result_count =
+                config["pipeline"]["final_result_count"].as<int>(20);
+            global_config_.pipeline.enable_cache =
+                config["pipeline"]["enable_cache"].as<bool>(true);
+            global_config_.pipeline.dag_pool_threads =
+                config["pipeline"]["dag_pool_threads"].as<int>(0);
+        }
+
         // background 段由 Scheduler::InitFromConfig 直接读取，无需在此解析
 
         // 配置合法性校验

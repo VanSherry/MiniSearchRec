@@ -1,5 +1,5 @@
 // ============================================================
-// MiniSearchRec - 用户历史召回处理器实现
+// MiniSearchRec - 用户历史召回处理器实现（DAG 并行模式）
 // 参考：X(Twitter) UTEG (User Tweet Entity Graph)
 // ============================================================
 
@@ -25,18 +25,18 @@ int UserHistoryRecallProcessor::Init(const YAML::Node& config) {
     return 0;
 }
 
-int UserHistoryRecallProcessor::Process(Session& session) {
+int UserHistoryRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
     if (!enabled_) return 0;
 
-    // user_profile 是 unique_ptr<UserProfile>
-    const auto& profile_ptr = session.user_profile;
+    auto* ss = dynamic_cast<const SearchSession*>(ctx->session);
+    if (!ss) return -1;
+
+    const auto& profile_ptr = ss->user_profile;
     if (!profile_ptr || profile_ptr->uid().empty()) {
-        // 无用户上下文，跳过
         return 0;
     }
     const auto& profile = *profile_ptr;
 
-    // 获取用户历史点击/点赞的文档（内部先去重）
     std::unordered_set<std::string> seen_ids;
     std::vector<std::string> history_doc_ids;
     for (const auto& doc_id : profile.click_doc_ids()) {
@@ -50,22 +50,16 @@ int UserHistoryRecallProcessor::Process(Session& session) {
         }
     }
 
-    // 获取 query 分词，用于相关性过滤
-    const auto& query_terms = session.qp_info.terms;
-    const std::string& inferred_category = session.qp_info.inferred_category;
+    const auto& query_terms = ss->qp_info.terms;
+    const std::string& inferred_category = ss->qp_info.inferred_category;
 
     auto doc_store = AppContext::Instance().GetDocStore();
 
-    // 构建已有 doc_id 集合，O(1) 去重
-    std::unordered_set<std::string> existing_ids;
-    for (const auto& cand : session.recall_results) {
-        existing_ids.insert(cand.doc_id);
-    }
+    std::vector<DocCandidate> candidates;
 
     int count = 0;
     for (const auto& doc_id : history_doc_ids) {
         if (count >= max_recall_) break;
-        if (existing_ids.count(doc_id)) continue;
 
         DocCandidate cand;
         cand.doc_id = doc_id;
@@ -75,10 +69,8 @@ int UserHistoryRecallProcessor::Process(Session& session) {
             Document doc;
             if (!doc_store->GetDoc(doc_id, doc)) continue;
 
-            // Query 相关性过滤：若有 query 分词，则文档需命中至少一个 term 或同类别
             if (!query_terms.empty()) {
                 bool relevant = false;
-                // 检查标题/类别是否含 query 词
                 const std::string& title = doc.title();
                 const std::string& category = doc.category();
                 for (const auto& term : query_terms) {
@@ -88,7 +80,6 @@ int UserHistoryRecallProcessor::Process(Session& session) {
                         break;
                     }
                 }
-                // 类别匹配也算相关
                 if (!relevant && !inferred_category.empty() &&
                     category == inferred_category) {
                     relevant = true;
@@ -107,12 +98,14 @@ int UserHistoryRecallProcessor::Process(Session& session) {
         }
 
         cand.recall_score = 1.0f / (count + 1);
-        session.recall_results.push_back(cand);
-        existing_ids.insert(doc_id);
+        ctx->output->doc_scores.emplace_back(doc_id, cand.recall_score);
+        candidates.push_back(std::move(cand));
         count++;
     }
 
-    session.search_counts.recall_source_counts["user_history"] = count;
+    ctx->output->items = std::move(candidates);
+    ctx->output->item_count = count;
+
     return 0;
 }
 

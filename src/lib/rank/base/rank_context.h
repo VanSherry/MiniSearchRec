@@ -12,6 +12,9 @@
 #include <chrono>
 #include "lib/rank/base/rank_vector.h"
 
+// 前向声明 framework Session（避免跨层依赖）
+namespace minisearchrec { namespace framework { struct Session; } }
+
 namespace minisearchrec {
 namespace rank {
 
@@ -42,6 +45,7 @@ public:
         uid_ = args.uid;
         query_ = args.query;
         business_type_ = args.business_type;
+        doc_id_ = args.doc_id;
         page_size_ = args.page_size;
         start_time_ = std::chrono::steady_clock::now();
         return 0;
@@ -52,6 +56,11 @@ public:
     const std::string& Query() const { return query_; }
     const std::string& BusinessType() const { return business_type_; }
     int PageSize() const { return page_size_; }
+    const std::string& DocId() const { return doc_id_; }
+
+    // ── 框架 Session（由业务 Handler 在创建 Rank 后设置）──
+    void SetFrameworkSession(framework::Session* s) { session_ = s; }
+    framework::Session* GetFrameworkSession() const { return session_; }
 
     // ── 排序队列（由 Rank::Init 创建后设置）──
     RankVectorPtr GetVector() const { return vec_ptr_; }
@@ -68,9 +77,11 @@ protected:
     std::string uid_;
     std::string query_;
     std::string business_type_;
+    std::string doc_id_;
     int page_size_ = 10;
 
     RankVectorPtr vec_ptr_;
+    framework::Session* session_ = nullptr;
     std::chrono::steady_clock::time_point start_time_;
 };
 

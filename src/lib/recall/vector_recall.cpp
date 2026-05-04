@@ -1,17 +1,17 @@
 // ============================================================
-// MiniSearchRec - 向量语义召回处理器实现（V1 阶段）
+// MiniSearchRec - 向量语义召回处理器实现（V1 阶段，DAG 并行模式）
 // 基于 Embedding 的语义召回
 // ============================================================
 
 #include "lib/recall/vector_recall.h"
-#include <iostream>
-#include <unordered_set>
+#include "framework/app_context.h"
+#include "utils/logger.h"
 
 namespace minisearchrec {
 
 int VectorRecallProcessor::Init(const YAML::Node& config) {
     if (config["enable"]) {
-        enabled_ = config["enable"].as<bool>(false);  // 默认关闭，V1 开启
+        enabled_ = config["enable"].as<bool>(false);  // 默认关闭
     }
     if (config["max_recall"]) {
         max_recall_ = config["max_recall"].as<int>(200);
@@ -25,45 +25,51 @@ int VectorRecallProcessor::Init(const YAML::Node& config) {
     return 0;
 }
 
-int VectorRecallProcessor::Process(Session& session) {
+int VectorRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
     if (!enabled_) return 0;
+
+    // 延迟初始化 VectorIndex（Init 时 AppContext 可能未就绪）
     if (!vec_idx_) {
-        // 向量索引未就绪（Faiss 未编译或未配置），静默跳过
-        return 0;
+        vec_idx_ = AppContext::Instance().GetVectorIndex();
+        if (!vec_idx_) {
+            return 0;
+        }
     }
-    if (session.qp_info.query_embedding.empty()) {
-        // Query 尚未向量化，跳过
+
+    auto* ss = dynamic_cast<const SearchSession*>(ctx->session);
+    if (!ss) return -1;
+
+    if (ss->qp_info.query_embedding.empty()) {
         return 0;
     }
 
     auto results = vec_idx_->Search(
-        session.qp_info.query_embedding,
+        ss->qp_info.query_embedding,
         top_k_,
         similarity_threshold_
     );
 
-    int count = 0;
-    // 构建已有 doc_id 集合，O(1) 查找
-    std::unordered_set<std::string> existing_ids;
-    for (const auto& cand : session.recall_results) {
-        existing_ids.insert(cand.doc_id);
-    }
+    std::vector<DocCandidate> candidates;
 
+    int count = 0;
     for (const auto& [doc_id, sim] : results) {
         if (count >= max_recall_) break;
 
-        if (existing_ids.count(doc_id) == 0) {
-            DocCandidate cand;
-            cand.doc_id = doc_id;
-            cand.recall_source = "vector";
-            cand.recall_score = sim;  // 相似度作为召回分
-            session.recall_results.push_back(cand);
-            existing_ids.insert(doc_id);
-            count++;
-        }
+        DocCandidate cand;
+        cand.doc_id = doc_id;
+        cand.recall_source = "vector";
+        cand.recall_score = sim;
+
+        ctx->output->doc_scores.emplace_back(doc_id, sim);
+        candidates.push_back(std::move(cand));
+        count++;
     }
 
-    session.search_counts.recall_source_counts["vector"] = count;
+    ctx->output->items = std::move(candidates);
+    ctx->output->item_count = count;
+
+    LOG_INFO("VectorRecall: recalled {} docs (top_k={}, threshold={:.2f})",
+             count, top_k_, similarity_threshold_);
     return 0;
 }
 

@@ -3,14 +3,14 @@
 // 对标：通用搜索框架 Rank::DoRank 中的 Processor 链调度
 //
 // 设计：
-//   1. 按阶段（recall/rank/rerank/filter/postprocess）分别持有 Processor 链
+//   1. 按阶段（recall DAG /rank/rerank/filter/postprocess）分别持有 Pipeline
 //   2. 服务启动时从 YAML 配置读取各阶段 processor 列表
 //   3. 反射创建 + Init（一次性，避免每请求 new + LoadModel）
-//   4. 每次请求按序调用 Process(session)
+//   4. recall 阶段用 DAG 并行执行，其余阶段按序调用 Process(session)
 //   5. 支持热更新（HotReload）
 //
 // 与 BaseHandler 的关系：
-//   - BaseHandler::DoSearch → 调用 recall_pipeline
+//   - BaseHandler::DoSearch → 调用 recall_dag + MergeRecall
 //   - BaseHandler::DoRank   → 调用 rank_pipeline
 //   - BaseHandler::DoRerank → 调用 rerank_pipeline
 //   - BaseHandler::DoInterpose → 调用 filter_pipeline + postprocess_pipeline
@@ -26,6 +26,7 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 #include "framework/processor/processor_interface.h"
+#include "framework/processor/dag_pipeline.h"
 
 namespace minisearchrec {
 namespace framework {
@@ -69,7 +70,7 @@ private:
 // ============================================================
 struct BusinessPipelineConfig {
     std::string business_type;
-    ProcessorPipeline recall_pipeline;
+    DagPipeline recall_dag;                // DAG 并行召回
     ProcessorPipeline rank_pipeline;       // 粗排
     ProcessorPipeline rerank_pipeline;     // 精排
     ProcessorPipeline filter_pipeline;     // 过滤

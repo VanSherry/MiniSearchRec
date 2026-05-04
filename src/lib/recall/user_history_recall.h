@@ -1,12 +1,12 @@
 // ============================================================
 // MiniSearchRec - 用户历史召回处理器
-// 参考：X(Twitter) UTEG (User Tweet Entity Graph)
+// 参考：X(Twitter) UTEG (User Tweet Entity Graph)（DAG 并行模式）
 // ============================================================
 
 #ifndef MINISEARCHREC_USER_HISTORY_RECALL_H
 #define MINISEARCHREC_USER_HISTORY_RECALL_H
 
-#include "framework/processor/processor_interface.h"
+#include "framework/processor/dag_pipeline.h"
 #include "biz/search/search_session.h"
 #include <unordered_map>
 #include <string>
@@ -18,7 +18,7 @@ public:
     UserHistoryRecallProcessor() = default;
     ~UserHistoryRecallProcessor() override = default;
 
-    int Process(Session& session) override;
+    int ProcessDag(framework::DagProcessorContext* ctx) override;
     std::string Name() const override { return "UserHistoryRecallProcessor"; }
     int Init(const YAML::Node& config) override;
 

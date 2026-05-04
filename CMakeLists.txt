@@ -285,6 +285,14 @@ set(RECALL_SRCS
     src/lib/recall/user_history_recall.cpp
     src/lib/recall/hot_content_recall.cpp
     src/lib/recall/recall_fusion.cpp
+    src/lib/recall/sug_trie_recall.cpp
+    src/lib/recall/nav_global_hot_recall.cpp
+    src/lib/recall/nav_doc_title_recall.cpp
+    src/lib/recall/nav_preset_recall.cpp
+    src/lib/recall/hint_tag_recall.cpp
+    src/lib/recall/hint_category_recall.cpp
+    src/lib/recall/hint_cooccur_recall.cpp
+    src/lib/recall/hint_query_expand_recall.cpp
 )
 
 set(INDEX_SRCS
@@ -295,10 +303,11 @@ set(INDEX_SRCS
 )
 
 set(RANK_SRCS
-    src/lib/rank/scorer/bm25_scorer.cpp
-    src/lib/rank/scorer/quality_scorer.cpp
-    src/lib/rank/scorer/freshness_scorer.cpp
-    src/lib/rank/scorer/lgbm_ranker.cpp
+    src/lib/rank/scorer/bm25_rank_processor.cpp
+    src/lib/rank/scorer/quality_rank_processor.cpp
+    src/lib/rank/scorer/freshness_rank_processor.cpp
+    src/lib/rank/scorer/lgbm_rank_processor.cpp
+    src/lib/rank/scorer/weighted_sum_scorer.cpp
     src/lib/rank/reranker/mmr_reranker.cpp
     src/lib/rank/base/rank.cpp
     src/lib/rank/base/rank_manager.cpp
@@ -351,6 +360,7 @@ set(FRAMEWORK_SRCS
     src/framework/handler/handler_manager.cpp
     src/framework/server/server.cpp
     src/framework/processor/processor_pipeline.cpp
+    src/framework/processor/dag_pipeline.cpp
 )
 
 set(SERVICE_SRCS
@@ -366,17 +376,14 @@ set(BIZ_SRCS
     src/biz/doc/doc_handler.cpp
     src/biz/event/event_handler.cpp
     src/biz/search/search_handler.cpp
+    src/biz/search/search_factory.cpp
     src/biz/sug/sug_handler.cpp
     src/biz/sug/sug_trie.cpp
     src/biz/sug/sug_factory.cpp
-    src/biz/sug/processor/sug_relevance_processor.cpp
-    src/biz/sug/processor/sug_post_rank_processor.cpp
     src/biz/hint/hint_handler.cpp
     src/biz/hint/hint_factory.cpp
-    src/biz/hint/processor/hint_rank_processor.cpp
     src/biz/nav/nav_handler.cpp
     src/biz/nav/nav_factory.cpp
-    src/biz/nav/processor/nav_score_processor.cpp
 )
 
 set(UTILS_SRCS

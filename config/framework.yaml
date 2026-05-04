@@ -37,6 +37,7 @@ cache:
 pipeline:
   final_result_count: 20
   enable_cache: true
+  dag_pool_threads: 0        # DAG 线程池大小，0 = 自动（hardware_concurrency）
 
 # ── Embedding 向量服务 ──
 # provider 可选：pseudo（默认伪向量）/ onnx（内置模型）/ http（远程服务）

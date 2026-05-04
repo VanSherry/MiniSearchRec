@@ -86,11 +86,11 @@ int Rank::Process() {
 }
 
 int Rank::DoRank() {
-    auto processors_cfg = GetProcessors(ctx_->BusinessType());
+    auto processors_cfg = GetProcessors(ctx_->BusinessType(), stage_name_);
     auto vec = ctx_->GetVector();
 
-    LOG_INFO("{}::DoRank: {} processors, {} items before rank",
-             RankName(), processors_cfg.size(), vec->Size());
+    LOG_INFO("{}::DoRank: stage={}, {} processors, {} items before rank",
+             RankName(), stage_name_, processors_cfg.size(), vec->Size());
 
     for (const auto& proc_cfg : processors_cfg) {
         // 创建 Processor 实例
@@ -127,8 +127,9 @@ const RankFactory* Rank::GetFactory(const std::string& business_type) {
     return RankManager::Instance().GetFactory(business_type);
 }
 
-std::vector<ProcessorConfig> Rank::GetProcessors(const std::string& business_type) {
-    return RankManager::Instance().GetProcessors(business_type);
+std::vector<ProcessorConfig> Rank::GetProcessors(const std::string& business_type,
+                                                   const std::string& stage) {
+    return RankManager::Instance().GetProcessors(business_type, stage);
 }
 
 } // namespace rank

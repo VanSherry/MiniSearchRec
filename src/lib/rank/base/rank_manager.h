@@ -12,6 +12,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <yaml-cpp/yaml.h>
 #include "lib/rank/base/rank_factory.h"
 #include "lib/rank/base/processor_interface.h"
 
@@ -24,7 +25,8 @@ namespace rank {
 struct BusinessRankConfig {
     std::string business_type;        // "search" / "sug" / "hint" / "nav"
     std::string factory_name;         // "SearchFactory" / "SugFactory" / ...
-    std::vector<ProcessorConfig> processors;
+    std::vector<ProcessorConfig> coarse_processors;  // 粗排（rank）阶段
+    std::vector<ProcessorConfig> fine_processors;     // 精排（rerank）阶段
 };
 
 // ============================================================
@@ -37,14 +39,22 @@ public:
         return inst;
     }
 
-    // 初始化：注册业务配置（在 main 中调用）
+    // 注册业务配置（编程式）
     void RegisterBusiness(const BusinessRankConfig& config);
+
+    // 从 YAML 节点加载业务配置（配置驱动）
+    // yaml: 业务的 YAML 根节点（如 search.yaml 的 root）
+    // business_type: 业务标识
+    // 格式见 rank_config: { factory, coarse_processors: [], fine_processors: [] }
+    bool LoadFromConfig(const YAML::Node& yaml, const std::string& business_type);
 
     // 按 business_type 获取 Factory
     const RankFactory* GetFactory(const std::string& business_type) const;
 
-    // 按 business_type 获取 Processor 配置列表
-    std::vector<ProcessorConfig> GetProcessors(const std::string& business_type) const;
+    // 按 business_type + stage 获取 Processor 列表
+    // stage: "coarse"（粗排）或 "fine"（精排）
+    std::vector<ProcessorConfig> GetProcessors(const std::string& business_type,
+                                                const std::string& stage = "coarse") const;
 
     // 是否已注册某个 business_type
     bool HasBusiness(const std::string& business_type) const {

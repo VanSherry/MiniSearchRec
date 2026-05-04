@@ -49,6 +49,12 @@ struct GlobalConfig {
         std::string tokenizer_path;        // onnx 模式：vocab.txt 路径
         int max_seq_len = 512;             // onnx 模式：最大序列长度
     } embedding;
+
+    struct PipelineConfig {
+        int final_result_count = 20;
+        bool enable_cache = true;
+        int dag_pool_threads = 0;          // DAG 线程池大小，0 = 自动（hardware_concurrency）
+    } pipeline;
 };
 
 class ConfigManager {

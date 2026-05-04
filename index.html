@@ -330,12 +330,12 @@ footer a{font-weight:600}
 <section class="hero">
   <div class="hero-content">
     <h1>Mini<span class="accent">Search</span>Rec</h1>
-    <p class="sub">生产级 C++17 搜索推荐引擎<br>框架驱动 · 配置优先 · 三层分离 · 零改代码新增业务</p>
+    <p class="sub">生产级 C++17 搜索推荐引擎<br>框架驱动 · 配置优先 · 三层分离 · 统一 Rank 引擎 · 零改代码新增业务</p>
     <div class="pill-row">
       <span class="pill solid">C++17</span>
       <span class="pill">ONNX Embedding</span>
-      <span class="pill">Config-First</span>
-      <span class="pill">Template Method</span>
+      <span class="pill">DAG Recall</span>
+      <span class="pill">Rank Engine</span>
     </div>
     <div class="stats">
       <div class="stat-box"><div class="val">153</div><div class="lbl">源文件</div></div>
@@ -428,10 +428,10 @@ footer a{font-weight:600}
           <div class="arch-chip">BaseHandler</div>
           <div class="arch-chip">HandlerManager</div>
           <div class="arch-chip">ProcessorPipeline</div>
+          <div class="arch-chip">DagPipeline</div>
+          <div class="arch-chip">RankManager</div>
           <div class="arch-chip">Session</div>
-          <div class="arch-chip">SessionFactory</div>
           <div class="arch-chip">AppContext</div>
-          <div class="arch-chip">ClassRegister</div>
         </div>
       </div>
       <div class="arch-connector">↓</div>
@@ -440,8 +440,8 @@ footer a{font-weight:600}
         <div class="body">
           <div class="arch-chip">index/ 索引</div>
           <div class="arch-chip">query/ QP</div>
-          <div class="arch-chip">recall/ 召回</div>
-          <div class="arch-chip">rank/ 排序</div>
+          <div class="arch-chip">recall/ DAG召回</div>
+          <div class="arch-chip">rank/ 引擎+打分</div>
           <div class="arch-chip">filter/ 过滤</div>
           <div class="arch-chip">feature/ 特征</div>
           <div class="arch-chip">embedding/ ONNX</div>
@@ -472,26 +472,25 @@ footer a{font-weight:600}
   <div class="biz-grid">
     <div class="biz-card">
       <div class="biz-title"><div class="icon" style="background:var(--g1)">🔍</div><h3>Search 全文搜索</h3></div>
-      <div class="desc">多路召回 → 多级排序 → 过滤干预 → 分页输出</div>
+      <div class="desc">多路 DAG 召回 → Rank 引擎多级排序 → 过滤干预 → 分页输出</div>
       <div class="steps">
         <div class="step"><div class="txt"><b>PreSearch</b> — 分词 + Embedding向量化 + AB染色</div></div>
-        <div class="step"><div class="txt"><b>Recall ×4</b> — 倒排(1K) + 向量(200) + 历史(50) + 热门(30) → RRF融合</div></div>
-        <div class="step"><div class="txt"><b>CoarseRank</b> — BM25 + Quality + Freshness → Top500</div></div>
-        <div class="step"><div class="txt"><b>FineRank</b> — LightGBM 精排 → Top100</div></div>
+        <div class="step"><div class="txt"><b>DAG Recall ×4</b> — 倒排(1K) + 向量(200) + 历史(50) + 热门(30) 纯召回 → MergeRecall 聚合</div></div>
+        <div class="step"><div class="txt"><b>CoarseRank</b> — SearchRank::PrepareInput(10+特征KV) → BM25+Quality+Freshness → coarse_score → Top500</div></div>
+        <div class="step"><div class="txt"><b>FineRank</b> — SearchRank(stage=fine) → LGBM 精排/规则树 → fine_score → Top100</div></div>
         <div class="step"><div class="txt"><b>Filter</b> — 去重 / 质量 / Spam / 黑名单</div></div>
         <div class="step"><div class="txt"><b>Rerank</b> — MMR多样性(λ=0.7) → Top20</div></div>
-        <div class="step"><div class="txt"><b>Response</b> — 分页 + JSON + 高亮 + 缓存</div></div>
+        <div class="step"><div class="txt"><b>Response</b> — 分页 + JSON + debug_scores + 缓存</div></div>
       </div>
     </div>
 
     <div class="biz-card">
       <div class="biz-title"><div class="icon" style="background:#3b82f6">💡</div><h3>Sug 搜索建议</h3></div>
-      <div class="desc">输入即补全，Trie 前缀匹配 + 多维排序</div>
+      <div class="desc">输入即补全，DAG 召回 → Rank 引擎加权排序</div>
       <div class="steps">
         <div class="step"><div class="txt"><b>CanSearch</b> — query 非空校验</div></div>
-        <div class="step"><div class="txt"><b>DoSearch</b> — Trie UTF-8 前缀匹配(max=100)</div></div>
-        <div class="step"><div class="txt"><b>DoRank</b> — 相关性 + 热度 + 新鲜度 加权排序</div></div>
-        <div class="step"><div class="txt"><b>Interpose</b> — 黑名单过滤 + 低质过滤</div></div>
+        <div class="step"><div class="txt"><b>DAG Recall</b> — SugTrie 前缀匹配（纯召回）</div></div>
+        <div class="step"><div class="txt"><b>DoRank (Rank引擎)</b> — SugFactory::PrepareInput 读取 DAG 结果 → WeightedSumScorer(前缀匹配+频次+新鲜度) → 排序截断</div></div>
         <div class="step"><div class="txt"><b>Response</b> — JSON + 前缀高亮 + 统计写入</div></div>
       </div>
     </div>
@@ -501,21 +500,20 @@ footer a{font-weight:600}
       <div class="desc">用户点击文档返回后，在点击的 Box 下方展示相关搜索词</div>
       <div class="steps">
         <div class="step"><div class="txt"><b>CanSearch</b> — doc_id 必填（用户刚点击的文档）</div></div>
-        <div class="step"><div class="txt"><b>DoSearch</b> — 标签匹配 + 行为共现 + 分类热词 + 查询扩展</div></div>
-        <div class="step"><div class="txt"><b>DoRank</b> — 共现强度 × 时效衰减 + 截断</div></div>
-        <div class="step"><div class="txt"><b>Interpose</b> — 过滤与当前 query 相同的词 + 去重</div></div>
+        <div class="step"><div class="txt"><b>DAG Recall ×4</b> — 标签匹配 + 分类热词 + 行为共现 + 查询扩展（纯召回，特征在 debug_scores 传递）</div></div>
+        <div class="step"><div class="txt"><b>DoRank (Rank引擎)</b> — HintFactory::PrepareInput 读取 4 路召回结果 → WeightedSumScorer(4 维特征加权) → 排序截断</div></div>
         <div class="step"><div class="txt"><b>Response</b> — 根据页面布局动态适配展示条数</div></div>
       </div>
     </div>
 
     <div class="biz-card">
       <div class="biz-title"><div class="icon" style="background:#f59e0b">🏠</div><h3>Nav 教育页</h3></div>
-      <div class="desc">搜索框下方热词，无需 query，个性化引导搜索</div>
+      <div class="desc">搜索框下方热词，无需 query，3 路 DAG 并行召回 → Rank 引擎排序</div>
       <div class="steps">
         <div class="step"><div class="txt"><b>CanSearch</b> — 允许空 query</div></div>
-        <div class="step"><div class="txt"><b>DoSearch</b> — 高频词 + 兴趣词 + 兜底词 混合召回</div></div>
-        <div class="step"><div class="txt"><b>DoRank</b> — 热度 × 新鲜度 × 个性化 + 去重</div></div>
-        <div class="step"><div class="txt"><b>Response</b> — JSON + 分类标签</div></div>
+        <div class="step"><div class="txt"><b>DAG Recall ×3</b> — 全局热词 + 文档标题 + 预置词兜底（纯召回，特征通过 debug_scores 传递）</div></div>
+        <div class="step"><div class="txt"><b>DoRank (Rank引擎)</b> — NavFactory::PrepareInput → WeightedSumScorer(heat 特征) → 排序截断</div></div>
+        <div class="step"><div class="txt"><b>Response</b> — JSON + 热度标签</div></div>
       </div>
     </div>
   </div>
@@ -528,7 +526,7 @@ footer a{font-weight:600}
     <p>Template Method 8 阶段骨架，每个 Processor 由 YAML 配置驱动反射创建，按序执行。</p>
   </div>
   <div class="pipeline-box">
-    <div class="pipe-hdr">BaseHandler::Search(session) — 8 阶段 Pipeline</div>
+    <div class="pipe-hdr">BaseHandler::Search(session) — 8 阶段 Pipeline (Rank 引擎驱动)</div>
     <div class="pipe-stages">
       <div class="pipe-stage">
         <div class="pipe-dot" style="background:#64748b">0</div>
@@ -554,35 +552,35 @@ footer a{font-weight:600}
       <div class="pipe-stage">
         <div class="pipe-dot" style="background:var(--g1)">3</div>
         <div class="pipe-info">
-          <div class="pipe-name">DoSearch — 4 路召回</div>
-          <div class="pipe-desc">recall_pipeline.Execute()，每路独立 Processor，结果 append 到 recall_results</div>
+          <div class="pipe-name">DoSearch — DAG 4 路并行召回</div>
+          <div class="pipe-desc">recall_stages DAG 并行执行，每路纯召回（不打分） → MergeRecall 聚合到 any_store</div>
           <div class="pipe-procs">
-            <span class="pipe-proc recall">InvertedRecall (1000)</span>
+            <span class="pipe-proc recall">InvertedRecall (1K)</span>
             <span class="pipe-proc recall">VectorRecall (200)</span>
-            <span class="pipe-proc recall">UserHistoryRecall</span>
-            <span class="pipe-proc recall">HotContentRecall</span>
+            <span class="pipe-proc recall">UserHistory</span>
+            <span class="pipe-proc recall">HotContent (30)</span>
           </div>
         </div>
       </div>
       <div class="pipe-stage">
         <div class="pipe-dot" style="background:#eab308">4</div>
         <div class="pipe-info">
-          <div class="pipe-name">DoRank — 粗排（3 打分器加权融合）</div>
-          <div class="pipe-desc">rank_pipeline.Execute() → sort by coarse_score → truncate top-500</div>
+          <div class="pipe-name">DoRank — 粗排（Rank 引擎）</div>
+          <div class="pipe-desc">SearchRank::Process() → PrepareInput(10+特征KV) → DoRank(BM25+Quality+Freshness) → GenerateRankOutput(coarse_score) → Top500</div>
           <div class="pipe-procs">
-            <span class="pipe-proc rank">BM25 (w=0.6)</span>
-            <span class="pipe-proc rank">Quality (w=0.2)</span>
-            <span class="pipe-proc rank">Freshness (w=0.2)</span>
+            <span class="pipe-proc rank">BM25Rank (w=0.6)</span>
+            <span class="pipe-proc rank">QualityRank (w=0.2)</span>
+            <span class="pipe-proc rank">FreshnessRank (w=0.2)</span>
           </div>
         </div>
       </div>
       <div class="pipe-stage">
         <div class="pipe-dot" style="background:#f97316">5</div>
         <div class="pipe-info">
-          <div class="pipe-name">DoRerank — 精排</div>
-          <div class="pipe-desc">rerank_pipeline.Execute() → 10 维特征 → LightGBM / 内置决策树 → top-100</div>
+          <div class="pipe-name">DoRerank — 精排（Rank 引擎）</div>
+          <div class="pipe-desc">SearchRank(stage=fine)::Process() → 10 维KV特征 → LGBMRankProcessor → fine_score → Top100</div>
           <div class="pipe-procs">
-            <span class="pipe-proc rank">LGBMScorer (w=0.8)</span>
+            <span class="pipe-proc rank">LGBMRank (w=0.8)</span>
           </div>
         </div>
       </div>
@@ -661,7 +659,7 @@ footer a{font-weight:600}
 <section class="sec" id="config" style="background:var(--bg2);max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
   <div class="sec-head">
     <h2><span class="bar"></span>配置驱动</h2>
-    <p>一个框架配置 + 每业务一个 Pipeline 配置，改配置不改代码。</p>
+    <p>一个框架配置 + 每业务一个 Pipeline+Rank 配置，改配置不改代码。Rank 引擎通过 <code>rank_config</code> 驱动各业务排序。</p>
   </div>
   <div class="cfg-grid" style="max-width:1080px">
     <div class="cfg-box">
@@ -691,7 +689,7 @@ background:
   auto_index_rebuild: { enable: true, interval_hours: 12 }
   sug_trie_rebuild: { enable: true, interval_sec: 3600 }</pre>
     </div>
-    <div class="cfg-box">
+      <div class="cfg-box">
       <div class="hdr">config/biz/search.yaml</div>
       <pre>recall_stages:
   - name: "InvertedRecallProcessor"
@@ -703,16 +701,18 @@ background:
   - name: "HotContentRecallProcessor"
     params: { max_recall: 30 }
 
-coarse_rank_stages:
-  - name: "BM25ScorerProcessor"
-    params: { weight: 0.6, k1: 1.5, b: 0.75 }
-  - name: "QualityScorerProcessor"
-    params: { weight: 0.3 }
-  - name: "FreshnessScorerProcessor"
-    params: { weight: 0.1, decay_rate: 0.01 }
-
-fine_rank_stages:
-  - name: "LGBMScorerProcessor"
+rank_config:
+  factory: "SearchFactory"
+  coarse_processors:
+    - name: "BM25RankProcessor"
+      weight: 0.6
+    - name: "QualityRankProcessor"
+      weight: 0.2
+    - name: "FreshnessRankProcessor"
+      weight: 0.2
+  fine_processors:
+    - name: "LGBMRankProcessor"
+      weight: 0.8
 
 filter_stages:
   - name: "DedupFilterProcessor"
@@ -736,13 +736,13 @@ postprocess_stages:
   <div class="add-steps">
     <div class="add-step">
       <div class="n">1</div>
-      <h4>写 Handler</h4>
-      <p>继承 <code>BaseHandler</code>，覆写各阶段<br><br>末尾加：<code>REGISTER_MSR_HANDLER(Xxx);</code></p>
+      <h4>写 Handler + Factory</h4>
+      <p>继承 <code>BaseHandler</code>，覆写各阶段<br><br>创建 <code>XxxFactory(Rank)</code> 实现排序<br><br>末尾加：<code>REGISTER_MSR_HANDLER(Xxx);</code><br><code>REGISTER_RANK_FACTORY(XxxFactory);</code></p>
     </div>
     <div class="add-step">
       <div class="n">2</div>
       <h4>加配置</h4>
-      <p><code>config/biz/xxx.yaml</code> 定义 Pipeline<br><br><code>framework.yaml</code> 加一条路由</p>
+      <p><code>config/biz/xxx.yaml</code> 定义 DAG recall + rank_config<br><br><code>framework.yaml</code> 加一条路由</p>
     </div>
     <div class="add-step">
       <div class="n">3</div>
@@ -855,7 +855,7 @@ postprocess_stages:
 
 <!-- ═══════ Footer ═══════ -->
 <footer>
-  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 153 源文件 · 16,600+ 行 C++17 · 117 测试全通过 &nbsp;·&nbsp; Apache License 2.0</p>
+  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 153 源文件 · 16,600+ 行 C++17 · DAG并行召回 · Rank引擎统一排序 · Apache License 2.0</p>
   <p style="margin-top:12px">
     <a href="https://github.com/VanSherry/MiniSearchRec">GitHub</a>
     &nbsp;·&nbsp;

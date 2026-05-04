@@ -28,6 +28,9 @@
 namespace minisearchrec {
 namespace framework {
 
+// Forward declaration（DAG 算子上下文，完整定义在 dag_pipeline.h）
+struct DagProcessorContext;
+
 // ============================================================
 // ProcessorConfig：从 YAML 加载的单个 Processor 配置
 // ============================================================
@@ -51,9 +54,15 @@ public:
     // config: YAML 参数节点
     virtual int Init(const YAML::Node& config) { return 0; }
 
-    // 处理（每次请求调用）
+    // 串行处理（rank/filter/postprocess 等阶段使用）
     // session: 当前请求的 Session（基类指针，业务内部 dynamic_cast）
     virtual int Process(Session* session) = 0;
+
+    // DAG 并行处理（recall 阶段使用）
+    // 输入：只读 Session + 上游算子输出
+    // 输出：写入 ctx->output（算子独占，无竞争）
+    // 默认返回 -1（非召回算子不支持 DAG 模式）
+    virtual int ProcessDag(DagProcessorContext* ctx) { return -1; }
 
     // 名称（用于日志/监控）
     virtual std::string Name() const = 0;

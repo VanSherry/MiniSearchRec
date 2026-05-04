@@ -3,6 +3,7 @@
 // ============================================================
 
 #include "framework/processor/processor_pipeline.h"
+#include "lib/rank/base/rank_manager.h"
 #include "utils/logger.h"
 #include <chrono>
 #include <filesystem>
@@ -36,7 +37,7 @@ bool ProcessorPipeline::LoadFromConfig(const YAML::Node& config,
         cfg.name = node["name"].as<std::string>("");
         cfg.weight = node["weight"].as<float>(1.0f);
         cfg.enable = node["enable"].as<bool>(true);
-        cfg.params = node["params"];
+        cfg.params = node["params"] ? node["params"] : YAML::Node(YAML::NodeType::Map);
 
         if (cfg.name.empty()) {
             LOG_WARN("ProcessorPipeline::LoadFromConfig: empty processor name in '{}', skip",
@@ -166,7 +167,7 @@ bool PipelineManager::Init(const std::string& config_dir) {
         BusinessPipelineConfig cfg;
         cfg.business_type = business_type;
 
-        cfg.recall_pipeline.LoadFromConfig(yaml, "recall_stages");
+        cfg.recall_dag.LoadFromConfig(yaml, "recall_stages");
 
         // 粗排：优先 coarse_rank_stages，fallback 到 rank_stages
         if (yaml["coarse_rank_stages"]) {
@@ -186,7 +187,9 @@ bool PipelineManager::Init(const std::string& config_dir) {
         cfg.postprocess_pipeline.LoadFromConfig(yaml, "postprocess_stages");
 
         configs_[business_type] = std::move(cfg);
-        LOG_INFO("PipelineManager: '{}' pipeline loaded from '{}'", business_type, file_path);
+
+        // 加载 rank_config（RankManager 管理粗排/精排 Processor 链）
+        rank::RankManager::Instance().LoadFromConfig(yaml, business_type);
     }
 
     LOG_INFO("PipelineManager: initialized with {} business types", configs_.size());
@@ -219,10 +222,13 @@ bool PipelineManager::HotReload(const std::string& business_type,
     }
 
     auto& cfg = it->second;
-    ProcessorPipeline* pipeline = nullptr;
 
-    if (stage == "recall") pipeline = &cfg.recall_pipeline;
-    else if (stage == "rank") pipeline = &cfg.rank_pipeline;
+    if (stage == "recall") {
+        return cfg.recall_dag.LoadFromConfig(new_config, "recall_stages");
+    }
+
+    ProcessorPipeline* pipeline = nullptr;
+    if (stage == "rank") pipeline = &cfg.rank_pipeline;
     else if (stage == "rerank") pipeline = &cfg.rerank_pipeline;
     else if (stage == "filter") pipeline = &cfg.filter_pipeline;
     else if (stage == "postprocess") pipeline = &cfg.postprocess_pipeline;

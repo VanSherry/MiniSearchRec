@@ -1,32 +1,32 @@
 # ============================================================
 # MiniSearchRec - Hint 相关搜索（点后推）配置
-# 参考：通用搜索框架 CLICKHINT 业务
 # ============================================================
+
+recall_stages:
+  - name: "HintTagRecall"
+    enable: true
+    depends_on: []
+  - name: "HintCategoryRecall"
+    enable: true
+    depends_on: []
+  - name: "HintCooccurRecall"
+    enable: true
+    depends_on: []
+  - name: "HintQueryExpandRecall"
+    enable: true
+    depends_on: []
+
+rank_config:
+  factory: "HintFactory"
+  coarse_processors:
+    - name: "WeightedSumScorer"
+      weight: 1.0
+      params:
+        features:
+          - {name: "tag_relevance", weight: 0.4}
+          - {name: "category_relevance", weight: 0.3}
+          - {name: "cooccur_score", weight: 0.2}
+          - {name: "query_relevance", weight: 0.1}
 
 hint:
   max_results: 8
-  recall:
-    tag_match:
-      enable: true
-      weight: 0.4
-      max_recall: 15
-    category_hot:
-      enable: true
-      weight: 0.3
-      max_recall: 15
-    behavior_cooccur:
-      enable: true
-      weight: 0.4
-      max_recall: 20
-    query_expand:
-      enable: true
-      weight: 0.2
-      max_recall: 10
-  rank:
-    tag_overlap_weight: 0.4
-    cooccur_weight: 0.4
-    freshness_weight: 0.2
-  filter:
-    min_len: 2
-    max_len: 20
-    dedup_edit_distance: 3

@@ -10,7 +10,6 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <unordered_set>
 
 namespace minisearchrec {
 
@@ -80,25 +79,22 @@ void HotContentRecallProcessor::RefreshHotList() {
     LOG_INFO("HotContentRecallProcessor: hot list refreshed, size={}", new_size);
 }
 
-int HotContentRecallProcessor::Process(Session& session) {
+int HotContentRecallProcessor::ProcessDag(framework::DagProcessorContext* ctx) {
     if (!enabled_) return 0;
+
+    auto* ss = dynamic_cast<const SearchSession*>(ctx->session);
+    if (!ss) return -1;
 
     int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
 
-    // BUG-6 修复：用 CAS 确保只有一个线程执行刷新，防止并发惊群
+    // CAS 防惊群刷新热榜
     int64_t old_time = last_refresh_time_.load();
     if (now - old_time > refresh_interval_sec_) {
         if (last_refresh_time_.compare_exchange_strong(old_time, now)) {
-            RefreshHotList();  // 只有 CAS 成功的线程执行刷新
+            RefreshHotList();
         }
-    }
-
-    // 构建已有 doc_id 集合，O(1) 去重
-    std::unordered_set<std::string> existing_ids;
-    for (const auto& cand : session.recall_results) {
-        existing_ids.insert(cand.doc_id);
     }
 
     std::vector<HotItem> snapshot;
@@ -108,14 +104,14 @@ int HotContentRecallProcessor::Process(Session& session) {
     }
 
     if (snapshot.empty()) {
-        session.search_counts.recall_source_counts["hot_content"] = 0;
         return 0;
     }
+
+    std::vector<DocCandidate> candidates;
 
     int count = 0;
     for (const auto& item : snapshot) {
         if (count >= max_recall_) break;
-        if (existing_ids.count(item.doc_id)) continue;
 
         DocCandidate cand;
         cand.doc_id        = item.doc_id;
@@ -127,12 +123,15 @@ int HotContentRecallProcessor::Process(Session& session) {
         cand.title         = item.title;
         cand.author        = item.author;
         cand.quality_score = item.quality_score;
-        session.recall_results.push_back(cand);
-        existing_ids.insert(item.doc_id);
+
+        ctx->output->doc_scores.emplace_back(item.doc_id, item.score);
+        candidates.push_back(std::move(cand));
         count++;
     }
 
-    session.search_counts.recall_source_counts["hot_content"] = count;
+    ctx->output->items = std::move(candidates);
+    ctx->output->item_count = count;
+
     LOG_INFO("HotContentRecallProcessor: recalled {} hot docs", count);
     return 0;
 }

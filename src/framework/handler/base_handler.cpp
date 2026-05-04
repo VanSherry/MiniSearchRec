@@ -9,6 +9,7 @@
 // ============================================================
 
 #include "framework/handler/base_handler.h"
+#include "framework/processor/dag_pipeline.h"
 #include "framework/processor/processor_pipeline.h"
 #include "utils/logger.h"
 #include <algorithm>
@@ -385,14 +386,29 @@ int32_t BaseHandler::DoSearch(Session* session) const {
 }
 
 int32_t BaseHandler::CommonDoSearch(Session* session) const {
-    // 默认：通过 PipelineManager 调度 recall_pipeline
+    // 通过 PipelineManager 调度 recall_dag（DAG 并行召回）
     auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
-    if (pipeline_cfg && pipeline_cfg->recall_pipeline.Size() > 0) {
-        return pipeline_cfg->recall_pipeline.Execute(session);
+    if (pipeline_cfg && pipeline_cfg->recall_dag.Size() > 0) {
+        std::vector<RecallOutputPtr> outputs;
+        int ret = pipeline_cfg->recall_dag.Execute(session, outputs);
+        if (ret != 0) return ret;
+        return MergeRecall(session, outputs);
     }
     return 0;
 }
 int32_t BaseHandler::ExtraDoSearch(Session* session) const { return 0; }
+
+int32_t BaseHandler::MergeRecall(Session* session,
+                                  const std::vector<RecallOutputPtr>& outputs) const {
+    // 默认实现：将所有算子输出简单写入 Session
+    // 子业务通常 override 此方法实现 RRF/加权融合等策略
+    int total = 0;
+    for (const auto& output : outputs) {
+        total += static_cast<int>(output->item_count);
+    }
+    session->counts.retrieve_count = total;
+    return 0;
+}
 
 int32_t BaseHandler::DoRank(Session* session) const {
     int32_t ret = CommonDoRank(session);
@@ -402,12 +418,38 @@ int32_t BaseHandler::DoRank(Session* session) const {
 
 int32_t BaseHandler::BeforeRank(Session* session) const { return 0; }
 int32_t BaseHandler::CommonDoRank(Session* session) const {
-    // 默认：通过 PipelineManager 调度 rank_pipeline（粗排）
-    auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
-    if (pipeline_cfg && pipeline_cfg->rank_pipeline.Size() > 0) {
-        return pipeline_cfg->rank_pipeline.Execute(session);
+    // 通过 RankManager 调度 rank Processors（粗排）
+    auto* factory = rank::RankManager::Instance().GetFactory(config_.business_type);
+    if (!factory) {
+        // fallback: 旧 Pipeline 方式
+        auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
+        if (pipeline_cfg && pipeline_cfg->rank_pipeline.Size() > 0) {
+            return pipeline_cfg->rank_pipeline.Execute(session);
+        }
+        return 0;
     }
-    return 0;
+
+    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
+    rank::RankArgs args;
+    args.business_type = config_.business_type;
+    args.query = session->query;
+    args.uid = session->uid;
+    args.page_size = session->request.page_size;
+
+    if (ranker->Init(args) != 0) {
+        LOG_ERROR("{}::CommonDoRank: Rank::Init failed", HandlerName());
+        return -1;
+    }
+
+    // 注入 Framework Session + 阶段名称
+    ranker->GetContext()->SetFrameworkSession(session);
+    ranker->SetStage("coarse");
+
+    int ret = ranker->Process();
+    if (ret != 0) {
+        LOG_WARN("{}::CommonDoRank: Rank::Process failed, ret={}", HandlerName(), ret);
+    }
+    return ret;
 }
 int32_t BaseHandler::ExtraDoRank(Session* session) const { return 0; }
 int32_t BaseHandler::AfterRank(Session* session) const { return 0; }
@@ -450,12 +492,37 @@ int32_t BaseHandler::SetRerankInput(Session* session) const {
 }
 
 int32_t BaseHandler::CommonDoRerank(Session* session) const {
-    // 默认：通过 PipelineManager 调度 rerank_pipeline（精排）
-    auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
-    if (pipeline_cfg && pipeline_cfg->rerank_pipeline.Size() > 0) {
-        return pipeline_cfg->rerank_pipeline.Execute(session);
+    // 通过 RankManager 调度 rank Processors（精排）
+    auto* factory = rank::RankManager::Instance().GetFactory(config_.business_type);
+    if (!factory) {
+        // fallback: 旧 Pipeline 方式
+        auto* pipeline_cfg = PipelineManager::Instance().GetConfig(config_.business_type);
+        if (pipeline_cfg && pipeline_cfg->rerank_pipeline.Size() > 0) {
+            return pipeline_cfg->rerank_pipeline.Execute(session);
+        }
+        return 0;
     }
-    return 0;
+
+    auto ranker = std::unique_ptr<rank::Rank>(factory->CreateRank());
+    rank::RankArgs args;
+    args.business_type = config_.business_type;
+    args.query = session->query;
+    args.uid = session->uid;
+    args.page_size = session->request.page_size;
+
+    if (ranker->Init(args) != 0) {
+        LOG_ERROR("{}::CommonDoRerank: Rank::Init failed", HandlerName());
+        return -1;
+    }
+
+    ranker->GetContext()->SetFrameworkSession(session);
+    ranker->SetStage("fine");
+
+    int ret = ranker->Process();
+    if (ret != 0) {
+        LOG_WARN("{}::CommonDoRerank: Rank::Process failed, ret={}", HandlerName(), ret);
+    }
+    return ret;
 }
 
 int32_t BaseHandler::AfterRerank(Session* session) const {

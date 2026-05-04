@@ -17,6 +17,7 @@
 
 #include "framework/session/session.h"
 #include "framework/processor/processor_interface.h"
+#include "framework/processor/dag_pipeline.h"
 
 // Proto 生成的头文件
 #include "search.pb.h"
@@ -120,16 +121,18 @@ using Session = SearchSession;
 // Processor 兼容基类（旧代码继承这些，实际转接到 framework::ProcessorInterface）
 // ============================================================
 
-// 召回处理器基类
+// 召回处理器基类（DAG 模式：只实现 ProcessDag）
 class BaseRecallProcessor : public framework::ProcessorInterface {
 public:
     ~BaseRecallProcessor() override = default;
-    virtual int Process(Session& session) = 0;
-    int Process(framework::Session* s) override {
-        auto* ss = dynamic_cast<Session*>(s);
-        if (!ss) return -1;
-        return Process(*ss);
-    }
+
+    // DAG 并行模式：召回算子必须实现此接口
+    // 输入：ctx->session（只读）、ctx->upstream_outputs（上游输出，只读）
+    // 输出：写入 ctx->output（算子独占，无竞争）
+    virtual int ProcessDag(framework::DagProcessorContext* ctx) override = 0;
+
+    // 串行 Process 已废弃，召回阶段不再支持串行
+    int Process(framework::Session* s) override { return -1; }
 };
 
 // 打分处理器基类（粗排/精排）
@@ -159,6 +162,7 @@ public:
         if (!ss) return -1;
         auto& results = ss->fine_rank_results.empty()
                         ? ss->coarse_rank_results : ss->fine_rank_results;
+        size_t before = results.size();
         auto it = std::remove_if(results.begin(), results.end(),
             [&](const DocCandidate& c) { return !ShouldKeep(*ss, c); });
         results.erase(it, results.end());

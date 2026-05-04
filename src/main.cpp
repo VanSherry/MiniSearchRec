@@ -6,6 +6,7 @@
 #include <memory>
 #include <csignal>
 #include <atomic>
+#include <thread>
 #include "framework/config/config_manager.h"
 #include "framework/app_context.h"
 #include "scheduler/scheduler.h"
@@ -14,6 +15,7 @@
 #include "framework/handler/handler_manager.h"
 #include "framework/session/session_factory.h"
 #include "framework/processor/processor_pipeline.h"
+#include "framework/processor/dag_thread_pool.h"
 #include "utils/logger.h"
 
 // =========================================================
@@ -106,6 +108,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     LOG_INFO("PipelineManager initialized (config-driven processors).");
+
+    // 初始化 DAG 线程池（用于召回并行执行）
+    {
+        const auto& gcfg = ConfigManager::Instance().GetGlobalConfig();
+        int dag_threads = gcfg.pipeline.dag_pool_threads;
+        if (dag_threads <= 0) {
+            dag_threads = static_cast<int>(std::thread::hardware_concurrency());
+            if (dag_threads <= 0) dag_threads = 4;
+        }
+        framework::DagThreadPool::Instance().Init(dag_threads);
+        LOG_INFO("DagThreadPool initialized with {} threads", dag_threads);
+    }
 
     // 初始化全局应用上下文（加载/构建索引）
     const auto& global_cfg = ConfigManager::Instance().GetGlobalConfig();
