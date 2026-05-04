@@ -4,7 +4,7 @@
 
 **生产级 C++17 搜索推荐引擎**
 
-*配置驱动 · 框架优先 · 零改代码扩展业务 · 多级 Rank 引擎*
+*配置驱动 · 框架优先 · 零改代码扩展业务 · RankEngine 纯计算引擎*
 
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg?style=flat-square&logo=cplusplus)](https://en.cppreference.com/w/cpp/17)
 [![CMake](https://img.shields.io/badge/CMake-3.16+-064F8C.svg?style=flat-square&logo=cmake)](https://cmake.org/)
@@ -16,8 +16,8 @@
 
 <br/>
 
-单进程内嵌 **索引构建 · 查询理解 · DAG 并行召回 · Rank 引擎多级排序 · 用户画像 · AB实验 · 在线训练**<br/>
-完整展示现代搜索系统从 Query 到 Result 到 Feedback 的闭环运作原理
+单进程内嵌 **索引构建 · 查询理解 · DAG 并行纯召回 · RankEngine 多级排序 · 用户画像 · AB实验 · 在线训练 · 数据飞轮闭环**<br/>
+完整展示现代搜索推荐系统从 Query 到 Result 到 Feedback 的完整运作原理
 
 <br/>
 
@@ -38,12 +38,12 @@
 - **反射注册** 宏 — 新增 Processor 只需 1 行注册
 - **YAML 驱动** — 所有业务路由/Pipeline/定时任务均为配置
 - **三层分离** — `framework/` → `biz/` → `lib/`
-- **Rank 引擎** — 统一 `RankManager` + `Rank` 基类，所有业务通过 `REGISTER_RANK_FACTORY` 注册自有排序逻辑
+- **RankEngine 纯计算引擎** — 只处理 `RankInput→RankOutput`，不碰 session I/O，主框架负责读写 session，所有业务共享同一引擎
 
 ### 🔍 搜索能力
-- **4/3/4/1 路 DAG 并行召回**：Search 4 路、Nav 3 路、Hint 4 路、Sug 1 路，纯召回（不打分，分数由 Rank 引擎处理）
-- **特征化排序**：`BaseRankItem::features_` KV 存储，Processor 通过 `GetFeature/SetFeature` 读写，新增特征只需 `PrepareInput` 加一行
-- **可复用排序算子**：`BM25RankProcessor`、`QualityRankProcessor`、`FreshnessRankProcessor`、`LGBMRankProcessor`、`WeightedSumScorer` 均注册为 rank Processor（`REGISTER_RANK_PROCESSOR`），任何业务配置即可使用
+- **12 路 DAG 并行纯召回**：Search 4 路 + Nav 3 路 + Hint 4 路 + Sug 1 路，每路独立 DAG 节点并行执行，纯召回不打分（分数由 RankEngine 处理）
+- **KV 特征化排序**：`RankItem::features` 存储特征，Processor 通过 `GetFeature/SetFeature` 读写，新增特征只需在 BuildRankInput 中加一行
+- **可复用排序算子**：BM25Rank / QualityRank / FreshnessRank / LGBMRank / WeightedSumScorer 均注册为 `REGISTER_RANK_PROCESSOR`，任何业务 YAML 配置即可使用
 
 </td>
 <td width="50%">
@@ -81,9 +81,11 @@
 │  │  Manager   │ │  Factory   │ │  Pipeline    │ │  Router    │  │
 │  └────────────┘ └────────────┘ └──────────────┘ └────────────┘  │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │  RankManager — 统一排序引擎 (Rank + Factory + Processor) │   │
-│  │  YAML rank_config → Factory(Rank) → PrepareInput→DoRank→│   │
-│  │  GenerateRankOutput — 所有业务通用排序框架              │   │
+│  │  RankEngine — 纯计算排序引擎                               │   │
+│  │  BuildRankInput(session)  →  RankItem[]                  │   │
+│  │  RankEngine::Score(items)  →  Processor 链打分           │   │
+│  │  ApplyRankOutput(session)  ←  排序截断写回               │   │
+│  │  主框架负责 session I/O，RankEngine 只做纯计算            │   │
 │  └──────────────────────────────────────────────────────────┘    │
 ├──────────────────────────────────────────────────────────────────┤
 │                     lib/ (公共算子库 · 各业务按需调用)               │
@@ -153,7 +155,7 @@ MiniSearchRec 实现了搜索产品的 **完整交互闭环**（参考微信搜�
 
 ---
 
-## 📐 搜索主流程（Template Method）
+## 📐 搜索主流程（Template Method · RankEngine 纯计算驱动）
 
 ```
 BaseHandler::Search(session)                    ← 8 阶段 Pipeline 骨架
@@ -170,23 +172,23 @@ BaseHandler::Search(session)                    ← 8 阶段 Pipeline 骨架
     │       └── Embedding        bge-base-zh ONNX / 伪向量降级
     │
     ├── 3. DoSearch              ← DAG 并行召回 (recall_stages)
-    │       ├── InvertedRecall    倒排索引 · 纯召回（分数由 Rank 处理）
+    │       ├── InvertedRecall    倒排索引 · 纯召回
     │       ├── VectorRecall      向量近邻 · 纯召回
     │       ├── HotContentRecall  热榜缓存 · CAS 原子刷新
     │       └── UserHistoryRecall 用户历史 · query 相关性过滤
-    │       MergeRecall: 聚合各 DAG 输出 → any_store
+    │       MergeRecall: 聚合各 DAG 输出 → session
     │
-    ├── 4. DoRank (粗排)         ← RankManager->SearchRank->Process()
-    │       ├── PrepareInput:     读 any_store, 预计算 10+ 特征, 存 KV
-    │       ├── DoRank:           BM25Rank(w=0.6) + Quality(w=0.2) + Freshness(w=0.2)
-    │       └── GenerateRankOutput: coarse_score 写回 DocCandidate
-    │       AfterRank → sort → truncate top-500
+    ├── 4. DoRank (粗排)         ← RankEngine 纯计算
+    │       [主框架 I/O]          BuildRankInput(session) → RankItem[]
+    │       [引擎计算]            RankEngine::Score(items) → BM25+Quality+Freshness
+    │       [主框架 I/O]          ApplyRankOutput(session, items, "rank")
+    │       AfterRank             sort → truncate top-500 → coarse_rank_results
     │
-    ├── 5. DoRerank (精排)       ← RankManager->SearchRank(stage=fine)
-    │       ├── PrepareInput:     基于 coarse_rank_results
-    │       ├── DoRank:           LGBMRankProcessor(w=0.8) / 内置规则树
-    │       └── GenerateRankOutput: fine_score 写回 DocCandidate
-    │       AfterRerank → sort → truncate top-100
+    ├── 5. DoRerank (精排)       ← RankEngine 纯计算（复用 BuildRankInput/ApplyRankOutput）
+    │       [主框架 I/O]          BuildRankInput(session, "rerank") → coarse_rank_results
+    │       [引擎计算]            RankEngine::Score(items) → LGBMRankProcessor
+    │       [主框架 I/O]          ApplyRankOutput(session, items, "rerank")
+    │       AfterRerank           sort → truncate top-100 → fine_rank_results
     │
     ├── 6. DoInterpose           ← filter + postprocess pipeline
     │       ├── DedupFilter      UTF-8 字符级 Jaccard ≥ 0.9
@@ -217,23 +219,24 @@ MiniSearchRec/
 │   ├── framework/                  # 框架层（新增业务不碰此目录）
 │   │   ├── handler/                #   BaseHandler + HandlerManager
 │   │   ├── session/                #   Session 生命周期 + KV/Any 存储
-│   │   ├── processor/              #   DagPipeline + ProcessorPipeline
+│   │   ├── processor/              #   DagPipeline + ProcessorPipeline + ProcessorInterface
 │   │   ├── server/                 #   统一请求路由
 │   │   ├── config/                 #   ConfigManager
 │   │   ├── app_context.h           #   全局 DI 容器（线程安全）
 │   │   └── class_register.h        #   反射注册宏
 │   ├── biz/                        # 业务实现层
-│   │   ├── search/                 #   全文搜索（SearchSession + DocCandidate + SearchFactory）
-│   │   ├── sug/                    #   搜索建议（Trie 双 Buffer + SugFactory）
-│   │   ├── hint/                   #   点后推荐（HintFactory）
-│   │   ├── nav/                    #   教育页（NavFactory）
+│   │   ├── search/                 #   全文搜索（SearchSession + DocCandidate）
+│   │   │   └── search_handler      #   BuildRankInput 预计算 10+ 特征
+│   │   ├── sug/                    #   搜索建议（Trie 双 Buffer）
+│   │   ├── hint/                   #   点后推荐（DocCooccurStore）
+│   │   ├── nav/                    #   教育页（热词召回 + 预置词兜底）
 │   │   ├── doc/                    #   文档 CRUD API
 │   │   └── event/                  #   事件接入（5 路数据写入）
 │   ├── lib/                        # 公共算子库
 │   │   ├── index/                  #   InvertedIndex(thread-safe) + VectorIndex(Faiss/暴力) + DocStore(thread_local)
 │   │   ├── query/                  #   QueryParser → Normalizer → Expander → Embedding
-│   │   ├── recall/                 #   DAG 召回算子（全部纯召回，分数由 Rank 阶段处理）
-│   │   ├── rank/base/              #   Rank + RankContext + RankVector + RankManager + ProcessorInterface
+│   │   ├── recall/                 #   DAG 召回算子（12 路纯召回，分数由 RankEngine 处理）
+│   │   ├── rank/engine/            #   RankEngine(纯计算) + RankItem + RankConfigManager + ProcessorInterface
 │   │   ├── rank/scorer/            #   BM25Rank / QualityRank / FreshnessRank / LGBMRank / WeightedSumScorer
 │   │   ├── rank/reranker/          #   MMR 多样性重排
 │   │   ├── filter/                 #   Dedup / Quality / Spam / Blacklist
@@ -346,20 +349,24 @@ curl -X POST http://localhost:8080/api/v1/event/click \
 只需 **3 步**，无需修改 `framework/` 或 `main.cpp`：
 
 ```bash
-# Step 1：编写 Handler（继承 BaseHandler，覆写钩子函数）
+# Step 1：编写 Handler
 vim src/biz/xxx/xxx_handler.cpp
-# 文件末尾：REGISTER_MSR_HANDLER(XxxBizHandler);
+# 继承 BaseHandler，覆写 BuildRankInput / ApplyRankOutput（或使用默认）
+# 末尾：REGISTER_MSR_HANDLER(XxxBizHandler);
 
-# Step 2：编写 Processor（继承 ProcessorInterface，实现 Init + Process）
-vim src/lib/xxx/xxx_processor.cpp
-# 文件末尾：REGISTER_MSR_PROCESSOR(XxxProcessor);
+# Step 2：编写 Processor（可选，也可以直接用通用的 WeightedSumScorer）
+vim src/lib/rank/scorer/xxx_processor.cpp
+# 继承 rank::ProcessorInterface，实现 Init + Process
+# 末尾：REGISTER_RANK_PROCESSOR(XxxProcessor);
 
 # Step 3：添加配置
-vim config/biz/xxx.yaml           # Pipeline 各阶段 Processor 配置
+vim config/biz/xxx.yaml           # recall_stages(DAG) + rank_config{rank:{processors}}
 vim config/framework.yaml         # businesses[] 中加一条路由
 
 # 重新编译启动 —— 完成！
 ```
+
+**简化场景**：如果业务不需要自定义排序规则，直接用默认的 `BuildRankInput`（从 `any_store` 读取 `{biz}_recall_docs`）和 `ApplyRankOutput`（写入 `{biz}_rank_vector`）+ `WeightedSumScorer`，只需写 YAML 配置，一行 C++ 代码都不需要写。
 
 ---
 
@@ -370,8 +377,8 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 | **Template Method** | `BaseHandler::Search()` 8 阶段骨架 | 业务只需覆写钩子 |
 | **Strategy** | EmbeddingProvider / 各 Processor | 配置一键切换实现 |
 | **Pipeline** | `ProcessorPipeline` 链式执行 | YAML 驱动编排 |
-| **Registry + Reflection** | `REGISTER_MSR_*` 宏 | 配置驱动零代码注册 |
-| **Double Buffer** | LGBMScorer / AppContext::SwapIndexes | 无锁热更新 |
+| **Registry + Reflection** | `REGISTER_MSR_*` / `REGISTER_RANK_PROCESSOR` 宏 | 配置驱动零代码注册 |
+| **Double Buffer** | LGBMRankProcessor / AppContext::SwapIndexes | 无锁原子切换 |
 | **DI Container** | `AppContext` 全局单例 | 解耦资源依赖 |
 | **Scope Guard** | `BaseHandler::Search()` 出口 | 保证日志上报 |
 | **Observer** | EventHandler → 5 路数据写入 | 解耦事件处理 |
@@ -413,22 +420,23 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 | | `time_window_hours` | 24 | 6~72 | 热门内容时间窗口（小时） |
 | | `refresh_interval_sec` | 300 | 60~600 | 热榜缓存刷新间隔（秒） |
 
-#### 粗排阶段（由 RankManager + SearchRank 驱动）
+#### Rank 阶段（由 RankEngine 纯计算引擎驱动）
 
-配置格式（`rank_config.coarse_processors`，`REGISTER_RANK_PROCESSOR` 注册）：
+配置格式（`rank_config.rank` / `rank_config.rerank`，`REGISTER_RANK_PROCESSOR` 注册）：
 
-| Processor | weight | 特征来源 | 说明 |
-|-----------|:------:|----------|------|
-| **BM25RankProcessor** | 0.6 | PrepareInput 预计算 `"bm25"` KV | tanh(BM25/10) 归一化 |
-| **QualityRankProcessor** | 0.2 | PrepareInput 预计算 `"quality"` KV | click + like + quality 加权 |
-| **FreshnessRankProcessor** | 0.2 | PrepareInput 预计算 `"freshness"` KV | exp(-0.01 × age_days) |
-| 最终 `total_score` | — | 各 Processor 累加 | GenerateRankOutput 写回 DocCandidate |
+| 阶段 | Processor | weight | 特征来源 | 说明 |
+|:----:|-----------|:------:|----------|------|
+| rank | **BM25RankProcessor** | 0.6 | BuildRankInput 预计算 `"bm25"` | tanh(BM25/10) 归一化 |
+| rank | **QualityRankProcessor** | 0.2 | BuildRankInput 预计算 `"quality"` | click + like + quality 加权 |
+| rank | **FreshnessRankProcessor** | 0.2 | BuildRankInput 预计算 `"freshness"` | exp(-0.01 × age_days) |
+| rerank | **LGBMRankProcessor** | 0.8 | 10 维 KV 特征 | LightGBM / 内置规则树（双 Buffer 热更新） |
 
-#### 精排阶段（`rank_config.fine_processors`）
-
-| Processor | weight | 特征维度 | 说明 |
-|-----------|:------:|:--------:|------|
-| **LGBMRankProcessor** | 0.8 | 10 维 KV 特征 | LightGBM 模型 / 内置决策树降级（双 Buffer 热更新） |
+**主框架 I/O 流程**：
+```
+BuildRankInput(session)     → RankItem[]（主框架从 session 读取数据）
+RankEngine::Score(items)    → Processor 链打分（纯计算，不碰 session）
+ApplyRankOutput(session)    ← 排序截断写回 session（主框架）
+```
 
 #### 过滤阶段
 
@@ -514,7 +522,7 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 | `background.auto_index_rebuild.interval_hours` | 12 | 索引自动重建间隔（小时） |
 | `background.sug_trie_rebuild.interval_sec` | 3600 | Sug Trie 重建间隔（秒） |
 
-> **调参建议**：小规模（<1000 篇）保持默认即可。大规模场景重点调 `max_recall`（扩大召回量）、`BM25RankProcessor.weight`（核心排序信号）和 `MMR.lambda`（多样性）。`min_quality_score` 在文档没有预设质量分时建议保持 `0.0`，避免误过滤。Rank Processor 的权重在 `rank_config.coarse_processors` 中配置，非框架框架 pipeline 参数。
+> **调参建议**：小规模（<1000 篇）保持默认即可。大规模场景重点调 `max_recall`（扩大召回量）、`BM25RankProcessor.weight`（核心排序信号）和 `MMR.lambda`（多样性）。`min_quality_score` 在文档没有预设质量分时建议保持 `0.0`，避免误过滤。Rank Processor 在 `rank_config.rank.processors` 和 `rank_config.rerank.processors` 中配置。
 
 ---
 
