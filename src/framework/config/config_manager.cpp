@@ -16,9 +16,6 @@ bool ConfigManager::LoadAll(const std::string& config_dir) {
 
     bool ok = true;
     ok = ok && LoadGlobalConfig(config_dir + "/framework.yaml");
-    ok = ok && LoadRecallConfig(config_dir + "/biz/search.yaml");
-    ok = ok && LoadRankConfig(config_dir + "/biz/search.yaml");
-    ok = ok && LoadFilterConfig(config_dir + "/biz/search.yaml");
     return ok;
 }
 
@@ -101,39 +98,6 @@ bool ConfigManager::LoadGlobalConfig(const std::string& path) {
         loaded_ = true;
         LOG_INFO("Successfully loaded global config from: {}", path);
 
-    } catch (const YAML::Exception& e) {
-        LOG_ERROR("Failed to load {}: {}", path, e.what());
-        return false;
-    }
-    return true;
-}
-
-bool ConfigManager::LoadRecallConfig(const std::string& path) {
-    try {
-        recall_config_ = YAML::LoadFile(path);
-        LOG_INFO("Successfully loaded recall config from: {}", path);
-    } catch (const YAML::Exception& e) {
-        LOG_ERROR("Failed to load {}: {}", path, e.what());
-        return false;
-    }
-    return true;
-}
-
-bool ConfigManager::LoadRankConfig(const std::string& path) {
-    try {
-        rank_config_ = YAML::LoadFile(path);
-        LOG_INFO("Successfully loaded rank config from: {}", path);
-    } catch (const YAML::Exception& e) {
-        LOG_ERROR("Failed to load {}: {}", path, e.what());
-        return false;
-    }
-    return true;
-}
-
-bool ConfigManager::LoadFilterConfig(const std::string& path) {
-    try {
-        filter_config_ = YAML::LoadFile(path);
-        LOG_INFO("Successfully loaded filter config from: {}", path);
     } catch (const YAML::Exception& e) {
         LOG_ERROR("Failed to load {}: {}", path, e.what());
         return false;

@@ -61,14 +61,8 @@ public:
     bool LoadAll(const std::string& config_dir);
 
     bool LoadGlobalConfig(const std::string& path);
-    bool LoadRecallConfig(const std::string& path);
-    bool LoadRankConfig(const std::string& path);
-    bool LoadFilterConfig(const std::string& path);
 
     const GlobalConfig& GetGlobalConfig() const { return global_config_; }
-    const YAML::Node& GetRecallConfig() const { return recall_config_; }
-    const YAML::Node& GetRankConfig() const { return rank_config_; }
-    const YAML::Node& GetFilterConfig() const { return filter_config_; }
 
     bool IsLoaded() const { return loaded_; }
 
@@ -84,9 +78,6 @@ private:
     bool ValidateLogLevel(const std::string& level);
 
     GlobalConfig global_config_;
-    YAML::Node recall_config_;
-    YAML::Node rank_config_;
-    YAML::Node filter_config_;
     std::string config_dir_;
     bool loaded_ = false;
     mutable std::mutex mutex_;
