@@ -34,6 +34,8 @@ private:
     void HandleAddDoc(const httplib::Request& req, httplib::Response& res);
     void HandleUpdateDoc(const httplib::Request& req, httplib::Response& res);
     void HandleDeleteDoc(const httplib::Request& req, httplib::Response& res);
+    void HandleGetDoc(const httplib::Request& req, httplib::Response& res);
+    void HandleListDocs(const httplib::Request& req, httplib::Response& res);
     void HandleReportEvent(const httplib::Request& req, httplib::Response& res);
     void HandleHealthCheck(const httplib::Request& req, httplib::Response& res);
 

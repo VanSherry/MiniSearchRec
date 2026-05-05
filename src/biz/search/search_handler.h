@@ -30,6 +30,7 @@ protected:
     int32_t AfterRerank(framework::Session* session) const override;
     int32_t DoInterpose(framework::Session* session) const override;
     int32_t SetResponse(framework::Session* session) const override;
+    void Report(framework::Session* session) const override;
     int32_t ExtraInit() override;
 };
 

@@ -27,11 +27,15 @@ public:
     bool IsEnabled() const override { return cfg_.enable; }
     void CheckAndRun() override;
 
-private:
+    // 立即触发全量重建（用于管理后台手动触发）
     bool RebuildAtomically();
 
+    int64_t LastRunEpoch() const override { return last_run_epoch_; }
+
+private:
     IndexRebuildConfig cfg_;
     std::chrono::steady_clock::time_point last_run_ = std::chrono::steady_clock::now();
+    int64_t last_run_epoch_ = 0;
 };
 
 } // namespace scheduler

@@ -48,6 +48,9 @@ public:
     // 获取所有实验名
     std::vector<std::string> ListExperiments() const;
 
+    // 获取所有实验完整配置（用于管理后台）
+    const std::vector<ExperimentConfig>& GetAllExperiments() const { return experiments_; }
+
 private:
     // 一致性 Hash 分桶
     uint32_t ConsistentHash(const std::string& uid) const;

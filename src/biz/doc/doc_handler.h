@@ -23,6 +23,12 @@ public:
 
     // 处理删除文档
     void HandleDelete(const httplib::Request& req, httplib::Response& res);
+
+    // 查询文档
+    void HandleGet(const httplib::Request& req, httplib::Response& res);
+
+    // 分页列出文档摘要
+    void HandleList(const httplib::Request& req, httplib::Response& res);
 };
 
 } // namespace minisearchrec

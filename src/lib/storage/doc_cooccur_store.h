@@ -37,6 +37,9 @@ public:
     // 获取与 src_doc_id 共现最多的文档列表
     std::vector<CooccurItem> GetTopCooccur(const std::string& src_doc_id, int limit = 20);
 
+    // 获取共现记录总数
+    int GetCount();
+
 private:
     DocCooccurStore() = default;
     ~DocCooccurStore() { Close(); }

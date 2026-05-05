@@ -13,6 +13,7 @@
 #include "gateway/http_server.h"
 #include "framework/server/server.h"
 #include "framework/handler/handler_manager.h"
+#include "lib/storage/report_store.h"
 #include "framework/session/session_factory.h"
 #include "framework/processor/processor_pipeline.h"
 #include "framework/processor/dag_thread_pool.h"
@@ -136,6 +137,9 @@ int main(int argc, char* argv[]) {
     }
     LOG_INFO("AppContext ready.");
 
+    // 初始化曝光/点击上报存储
+    ReportStore::Instance().Initialize(global_cfg.index.data_dir + "/report.db");
+
     // 业务模块初始化由框架在 HandlerManager::Init → handler->Init → ExtraInit 中自动完成
     // 新增业务不需要改 main.cpp
 
@@ -160,6 +164,7 @@ int main(int argc, char* argv[]) {
 
     // ── 启动后台调度器（配置驱动）──
     scheduler::Scheduler scheduler;
+    scheduler::Scheduler::SetInstance(&scheduler);
     if (!scheduler.InitFromConfig(config_dir + "/framework.yaml")) {
         LOG_WARN("Scheduler: config load failed, no background tasks");
     }
@@ -177,6 +182,7 @@ int main(int argc, char* argv[]) {
     if (!server->Initialize()) {
         LOG_ERROR("Failed to initialize HTTP server!");
         scheduler.Stop();
+        ReportStore::Instance().Stop();
         return 1;
     }
 
@@ -187,6 +193,7 @@ int main(int argc, char* argv[]) {
     // ── 优雅退出 ──
     LOG_INFO("Shutting down...");
     scheduler.Stop();
+    ReportStore::Instance().Stop();
     g_server = nullptr;
 
     LOG_INFO("Shutdown complete.");

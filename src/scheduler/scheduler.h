@@ -38,6 +38,9 @@ public:
 
     // 执行检查：判断是否需要执行 + 执行
     virtual void CheckAndRun() = 0;
+
+    // 上次执行时间的 Unix 时间戳（秒），0 表示尚未执行过
+    virtual int64_t LastRunEpoch() const { return 0; }
 };
 
 using TaskPtr = std::shared_ptr<BackgroundTask>;
@@ -66,7 +69,21 @@ public:
     bool IsRunning() const { return running_.load(); }
     size_t TaskCount() const { return tasks_.size(); }
 
+    // 任务状态快照（用于管理后台）
+    struct TaskStatus {
+        std::string name;
+        bool enabled = false;
+        int interval_sec = 0;
+        int64_t last_run_epoch = 0;
+    };
+    std::vector<TaskStatus> GetAllTaskStatus() const;
+
+    // 全局访问器（由 main.cpp 在创建后设置）
+    static Scheduler* GetInstance() { return instance_; }
+    static void SetInstance(Scheduler* sched) { instance_ = sched; }
+
 private:
+    static Scheduler* instance_;
     void Loop();
 
     std::vector<TaskPtr> tasks_;

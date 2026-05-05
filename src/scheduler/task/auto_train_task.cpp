@@ -7,6 +7,7 @@
 #include "utils/logger.h"
 
 #include <cstdlib>
+#include <ctime>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fstream>
@@ -49,6 +50,7 @@ void AutoTrainTask::CheckAndRun() {
     }
 
     last_run_ = std::chrono::steady_clock::now();
+    last_run_epoch_ = std::time(nullptr);
     last_event_count_ = CountEvents();
 }
 

@@ -202,6 +202,9 @@ do_interpose:
         }
     }
 
+    // Report 阶段（各业务覆写以推送曝光/点击数据）
+    Report(session);
+
     return 0;
 }
 

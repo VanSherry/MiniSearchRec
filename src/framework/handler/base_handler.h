@@ -183,6 +183,9 @@ protected:
     // ── 8. ReportFinal 阶段（上报/诊断）──
     virtual int32_t ReportFinal(Session* session) const;
 
+    // ── Report 阶段（曝光/点击上报，各业务覆写）──
+    virtual void Report(Session* session) const {}
+
     // ── 兜底 ──
     virtual void SetEmptyResponse(Session* session) const;
     virtual int32_t RankFallback(Session* session) const;

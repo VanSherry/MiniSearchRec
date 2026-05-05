@@ -10,9 +10,12 @@
 
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
+#include <ctime>
 
 namespace minisearchrec {
 namespace scheduler {
+
+Scheduler* Scheduler::instance_ = nullptr;
 
 Scheduler::~Scheduler() {
     Stop();
@@ -138,6 +141,20 @@ void Scheduler::Loop() {
             if (stop_requested_.load()) break;
         }
     }
+}
+
+std::vector<Scheduler::TaskStatus> Scheduler::GetAllTaskStatus() const {
+    std::vector<TaskStatus> result;
+    result.reserve(tasks_.size());
+    for (const auto& task : tasks_) {
+        TaskStatus st;
+        st.name           = task->Name();
+        st.enabled        = task->IsEnabled();
+        st.interval_sec   = task->CheckIntervalSec();
+        st.last_run_epoch = task->LastRunEpoch();
+        result.push_back(std::move(st));
+    }
+    return result;
 }
 
 } // namespace scheduler

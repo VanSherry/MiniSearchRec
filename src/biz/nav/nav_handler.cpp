@@ -2,6 +2,7 @@
 #include "biz/nav/nav_handler.h"
 #include "biz/search/search_session.h"
 #include "lib/rank/engine/rank_engine.h"
+#include "lib/storage/report_store.h"
 #include "utils/logger.h"
 #include <json/json.h>
 
@@ -52,6 +53,12 @@ int32_t NavBizHandler::SetResponse(framework::Session* session) const {
     session->response.items_json = Json::writeString(writer, root);
     session->response.search_id = session->search_id;
     return 0;
+}
+
+void NavBizHandler::Report(framework::Session* session) const {
+    if (session->response.total > 0) {
+        ReportStore::Instance().Report("nav", "impression", session->response.total);
+    }
 }
 
 } // namespace minisearchrec

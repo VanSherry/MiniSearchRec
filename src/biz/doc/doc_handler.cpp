@@ -141,4 +141,138 @@ void DocHandler::HandleDelete(const httplib::Request& req,
     res.status = 200;
 }
 
+static Json::Value DocToJson(const Document& doc) {
+    Json::Value j;
+    j["doc_id"]         = doc.doc_id();
+    j["title"]          = doc.title();
+    j["content"]        = doc.content();
+    j["author"]         = doc.author();
+    j["publish_time"]   = doc.publish_time();
+    j["category"]       = doc.category();
+    j["quality_score"]  = doc.quality_score();
+    j["click_count"]    = doc.click_count();
+    j["like_count"]     = doc.like_count();
+    j["content_length"] = doc.content_length();
+    j["source_url"]     = doc.source_url();
+    for (int i = 0; i < doc.tags_size(); ++i) {
+        j["tags"].append(doc.tags(i));
+    }
+    // embedding 太长，序列化时跳过
+    return j;
+}
+
+static Json::Value DocToSummary(const Document& doc) {
+    Json::Value j;
+    j["doc_id"]       = doc.doc_id();
+    j["title"]        = doc.title();
+    j["category"]     = doc.category();
+    j["click_count"]  = doc.click_count();
+    j["like_count"]   = doc.like_count();
+    j["publish_time"] = doc.publish_time();
+    j["author"]       = doc.author();
+    j["quality_score"]= doc.quality_score();
+    return j;
+}
+
+void DocHandler::HandleGet(const httplib::Request& req,
+                            httplib::Response& res) {
+    std::string doc_id;
+    if (req.has_param("doc_id")) {
+        doc_id = req.get_param_value("doc_id");
+    } else if (!req.body.empty()) {
+        Json::Value body;
+        Json::CharReaderBuilder builder;
+        std::string errors;
+        std::istringstream iss(req.body);
+        if (Json::parseFromStream(builder, iss, &body, &errors)) {
+            doc_id = body.get("doc_id", "").asString();
+        }
+    }
+
+    if (doc_id.empty()) {
+        res.set_content(MakeError(400, "doc_id is required"), "application/json");
+        res.status = 400;
+        return;
+    }
+
+    auto doc_store = AppContext::Instance().GetDocStore();
+    if (!doc_store) {
+        res.set_content(MakeError(500, "DocStore not available"), "application/json");
+        res.status = 500;
+        return;
+    }
+
+    Document doc;
+    if (!doc_store->GetDoc(doc_id, doc)) {
+        res.set_content(MakeError(404, "Document not found: " + doc_id), "application/json");
+        res.status = 404;
+        return;
+    }
+
+    Json::Value root;
+    root["ret"]     = 0;
+    root["err_msg"] = "";
+    root["data"]    = DocToJson(doc);
+
+    Json::StreamWriterBuilder wb;
+    wb["indentation"] = "";
+    res.set_content(Json::writeString(wb, root), "application/json");
+    res.status = 200;
+}
+
+void DocHandler::HandleList(const httplib::Request& req,
+                             httplib::Response& res) {
+    auto doc_store = AppContext::Instance().GetDocStore();
+    if (!doc_store) {
+        res.set_content(MakeError(500, "DocStore not available"), "application/json");
+        res.status = 500;
+        return;
+    }
+
+    auto all_ids = doc_store->GetAllDocIds();
+
+    // 分页参数
+    int page = 1;
+    int page_size = 20;
+    if (req.has_param("page")) {
+        page = std::max(1, std::stoi(req.get_param_value("page")));
+    }
+    if (req.has_param("page_size")) {
+        page_size = std::max(1, std::min(100, std::stoi(req.get_param_value("page_size"))));
+    }
+
+    int total = static_cast<int>(all_ids.size());
+    int start = (page - 1) * page_size;
+    int end = std::min(start + page_size, total);
+
+    Json::Value items(Json::arrayValue);
+    for (int i = start; i < end; ++i) {
+        Document doc;
+        if (doc_store->GetDoc(all_ids[i], doc)) {
+            items.append(DocToSummary(doc));
+        } else {
+            // 仅返回 ID 作为兜底
+            Json::Value j;
+            j["doc_id"] = all_ids[i];
+            items.append(std::move(j));
+        }
+    }
+
+    Json::Value data;
+    data["total"]      = total;
+    data["page"]       = page;
+    data["page_size"]  = page_size;
+    data["items"]      = std::move(items);
+
+    Json::Value root;
+    root["ret"]     = 0;
+    root["err_msg"] = "";
+    root["data"]    = std::move(data);
+
+    Json::StreamWriterBuilder wb;
+    wb["indentation"] = "";
+    res.set_content(Json::writeString(wb, root), "application/json");
+    res.status = 200;
+}
+
 } // namespace minisearchrec

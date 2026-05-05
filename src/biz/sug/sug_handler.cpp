@@ -5,6 +5,7 @@
 #include "framework/config/config_manager.h"
 #include "framework/app_context.h"
 #include "lib/storage/query_stats_store.h"
+#include "lib/storage/report_store.h"
 #include "lib/index/doc_store.h"
 #include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
@@ -101,6 +102,12 @@ int32_t SugBizHandler::SetResponse(framework::Session* session) const {
     session->response.items_json = Json::writeString(writer, root);
     session->response.search_id = session->search_id;
     return 0;
+}
+
+void SugBizHandler::Report(framework::Session* session) const {
+    if (session->response.total > 0) {
+        ReportStore::Instance().Report("sug", "impression", session->response.total);
+    }
 }
 
 } // namespace minisearchrec

@@ -34,6 +34,8 @@ public:
     bool IsEnabled() const override { return cfg_.enable; }
     void CheckAndRun() override;
 
+    int64_t LastRunEpoch() const override { return last_run_epoch_; }
+
 private:
     int CountEvents();
     bool DumpTrainData();
@@ -42,6 +44,7 @@ private:
 
     AutoTrainConfig cfg_;
     std::chrono::steady_clock::time_point last_run_ = std::chrono::steady_clock::now();
+    int64_t last_run_epoch_ = 0;
     int64_t last_event_count_ = 0;
 };
 

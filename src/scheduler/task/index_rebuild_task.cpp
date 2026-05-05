@@ -9,6 +9,7 @@
 #include "lib/index/vector_index.h"
 #include "lib/index/doc_store.h"
 #include "utils/logger.h"
+#include <ctime>
 
 namespace minisearchrec {
 namespace scheduler {
@@ -24,6 +25,7 @@ void IndexRebuildTask::CheckAndRun() {
     if (RebuildAtomically()) {
         LOG_INFO("IndexRebuild: rebuild and swap complete");
         last_run_ = std::chrono::steady_clock::now();
+        last_run_epoch_ = std::time(nullptr);
     } else {
         LOG_ERROR("IndexRebuild: rebuild failed, keeping old index");
     }

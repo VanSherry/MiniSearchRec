@@ -369,6 +369,7 @@ set(SERVICE_SRCS
 set(STORAGE_SRCS
     src/lib/storage/query_stats_store.cpp
     src/lib/storage/doc_cooccur_store.cpp
+    src/lib/storage/report_store.cpp
 )
 
 set(BIZ_SRCS

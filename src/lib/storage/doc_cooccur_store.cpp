@@ -115,4 +115,20 @@ std::vector<CooccurItem> DocCooccurStore::GetTopCooccur(const std::string& src_d
     return results;
 }
 
+int DocCooccurStore::GetCount() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return 0;
+
+    const char* sql = "SELECT COUNT(*) FROM doc_cooccur;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 } // namespace minisearchrec

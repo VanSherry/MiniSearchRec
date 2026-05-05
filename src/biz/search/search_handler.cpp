@@ -8,6 +8,7 @@
 #include "lib/query/query_parser.h"
 #include "lib/recall/recall_fusion.h"
 #include "lib/index/doc_store.h"
+#include "lib/storage/report_store.h"
 #include "utils/logger.h"
 
 #include <json/json.h>
@@ -335,6 +336,15 @@ int32_t SearchBizHandler::SetResponse(framework::Session* session) const {
     session->response.items_json = Json::writeString(writer, root);
     session->response.search_id = session->search_id;
     return 0;
+}
+
+void SearchBizHandler::Report(framework::Session* session) const {
+    auto* ss = GetSearchSession(session);
+    if (!ss) return;
+    int count = static_cast<int>(ss->final_results.size());
+    if (count > 0) {
+        ReportStore::Instance().Report("search", "impression", count);
+    }
 }
 
 // ============================================================

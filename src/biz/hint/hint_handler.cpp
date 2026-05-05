@@ -3,6 +3,7 @@
 #include "biz/search/search_session.h"
 #include "framework/config/config_manager.h"
 #include "lib/storage/doc_cooccur_store.h"
+#include "lib/storage/report_store.h"
 #include "lib/rank/engine/rank_engine.h"
 #include "utils/logger.h"
 #include <json/json.h>
@@ -60,6 +61,12 @@ int32_t HintBizHandler::SetResponse(framework::Session* session) const {
     session->response.items_json = Json::writeString(writer, root);
     session->response.search_id = session->search_id;
     return 0;
+}
+
+void HintBizHandler::Report(framework::Session* session) const {
+    if (session->response.total > 0) {
+        ReportStore::Instance().Report("hint", "impression", session->response.total);
+    }
 }
 
 } // namespace minisearchrec

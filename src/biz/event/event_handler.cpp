@@ -12,6 +12,7 @@
 #include "framework/config/config_manager.h"
 #include "lib/storage/doc_cooccur_store.h"
 #include "lib/storage/query_stats_store.h"
+#include "lib/storage/report_store.h"
 #include "utils/logger.h"
 #include <json/json.h>
 #include <sqlite3.h>
@@ -197,6 +198,7 @@ void EventHandler::Handle(const httplib::Request& req,
     std::string uid       = root.get("uid",         "").asString();
     std::string doc_id    = root.get("doc_id",       "").asString();
     std::string query     = root.get("query",        "").asString();
+    std::string biz_type  = root.get("biz_type",    "search").asString();
     int result_pos        = root.get("result_pos",   -1).asInt();
     int duration_ms       = root.get("duration_ms",   0).asInt();
 
@@ -251,6 +253,11 @@ void EventHandler::Handle(const httplib::Request& req,
         LOG_WARN("EventHandler: failed to write event to DB uid={} doc={}", uid, doc_id);
     }
 
+    // 将点击事件上报到 ReportStore
+    if (event_type == "click" || event_type == "like") {
+        ReportStore::Instance().Report(biz_type, event_type, 1);
+    }
+
     // ---- 3. 实时更新用户画像 ----
     if (!uid.empty() && !doc_id.empty() &&
         (event_type == "click" || event_type == "like")) {
@@ -294,6 +301,92 @@ void EventHandler::Handle(const httplib::Request& req,
 
     res.set_content(R"({"ret":0,"err_msg":""})", "application/json");
     res.status = 200;
+}
+
+std::string EventHandler::QueryEventsAsJson(const std::string& uid,
+                                             const std::string& event_type,
+                                             int limit,
+                                             int64_t since_ts) {
+    std::string data_dir = ConfigManager::Instance().GetGlobalConfig().index.data_dir;
+    if (data_dir.empty()) data_dir = "./data/";
+    if (data_dir.back() != '/') data_dir += '/';
+    std::string db_path = data_dir + "events.db";
+
+    sqlite3* db = nullptr;
+    if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        Json::Value root;
+        root["ret"] = 500;
+        root["err_msg"] = "Failed to open events.db";
+        Json::StreamWriterBuilder w;
+        w["indentation"] = "";
+        return Json::writeString(w, root);
+    }
+
+    // 构建查询 SQL
+    std::string sql = "SELECT uid, doc_id, event_type, query, result_pos, "
+                      "duration_ms, ts FROM search_events WHERE 1=1";
+    if (!uid.empty()) {
+        sql += " AND uid = ?";
+    }
+    if (!event_type.empty()) {
+        sql += " AND event_type = ?";
+    }
+    if (since_ts > 0) {
+        sql += " AND ts >= ?";
+    }
+    sql += " ORDER BY ts DESC LIMIT ?";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        Json::Value root;
+        root["ret"] = 500;
+        root["err_msg"] = sqlite3_errmsg(db);
+        Json::StreamWriterBuilder w;
+        w["indentation"] = "";
+        return Json::writeString(w, root);
+    }
+
+    int idx = 1;
+    if (!uid.empty()) {
+        sqlite3_bind_text(stmt, idx++, uid.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    if (!event_type.empty()) {
+        sqlite3_bind_text(stmt, idx++, event_type.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    if (since_ts > 0) {
+        sqlite3_bind_int64(stmt, idx++, since_ts);
+    }
+    sqlite3_bind_int(stmt, idx, limit);
+
+    Json::Value items(Json::arrayValue);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        Json::Value j;
+        j["uid"]          = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        j["doc_id"]       = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        j["event_type"]   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        j["query"]        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        j["result_pos"]   = sqlite3_column_int(stmt, 4);
+        j["duration_ms"]  = sqlite3_column_int(stmt, 5);
+        j["ts"]           = sqlite3_column_int64(stmt, 6);
+        items.append(std::move(j));
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    Json::Value data;
+    data["total"] = static_cast<int>(items.size());
+    data["items"] = std::move(items);
+
+    Json::Value root;
+    root["ret"]     = 0;
+    root["err_msg"] = "";
+    root["data"]    = std::move(data);
+
+    Json::StreamWriterBuilder w;
+    w["indentation"] = "";
+    return Json::writeString(w, root);
 }
 
 } // namespace minisearchrec

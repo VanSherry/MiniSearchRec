@@ -5,6 +5,7 @@
 #include "scheduler/task/trie_rebuild_task.h"
 #include "biz/sug/sug_handler.h"
 #include "utils/logger.h"
+#include <ctime>
 
 namespace minisearchrec {
 namespace scheduler {
@@ -19,6 +20,7 @@ void TrieRebuildTask::CheckAndRun() {
     LOG_INFO("TrieRebuild: interval reached ({}s), rebuilding", elapsed_sec);
     SugHandler::RebuildTrie();
     last_run_ = std::chrono::steady_clock::now();
+    last_run_epoch_ = std::time(nullptr);
     LOG_INFO("TrieRebuild: complete");
 }
 
