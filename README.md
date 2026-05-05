@@ -70,31 +70,32 @@
 ## 🏛️ 系统架构
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     gateway/ (HTTP 网关 · cpp-httplib)            │
-├──────────┬──────────┬──────────┬──────────┬──────────────────────┤
-│  search  │   sug    │   hint   │   nav    │   doc / event / admin│
-│  (垂搜)  │(下拉联想) │ (点后推) │(教育页) │   (文档·行为·管理)    │
-├──────────┴──────────┴──────────┴──────────┴──────────────────────┤
-│                     framework/ (框架层 · 零改扩展)                 │
-│  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────┐  │
-│  │  Handler   │ │  Session   │ │  Processor   │ │  Server    │  │
-│  │  Manager   │ │  Factory   │ │  Pipeline    │ │  Router    │  │
-│  └────────────┘ └────────────┘ └──────────────┘ └────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐    │
-│  │  RankEngine — 纯计算排序引擎                               │   │
-│  │  BuildRankInput(session)  →  RankItem[]                  │   │
-│  │  RankEngine::Score(items)  →  Processor 链打分           │   │
-│  │  ApplyRankOutput(session)  ←  排序截断写回               │   │
-│  │  主框架负责 session I/O，RankEngine 只做纯计算            │   │
-│  └──────────────────────────────────────────────────────────┘    │
-├──────────────────────────────────────────────────────────────────┤
-│                     lib/ (公共算子库 · 各业务按需调用)               │
-│  index/  query/  recall/(DAG)  rank/(scorer+reranker)  filter/  │
-│  embedding/  storage/  user/  feature/                           │
-├──────────────────────────────────────────────────────────────────┤
-│  scheduler/ (定时任务)  │  cache/ (多级缓存)  │  ab/ (实验框架)     │
-└─────────────────────────┴─────────────────────┴──────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                 gateway/ (HTTP 网关 · cpp-httplib)                   │
+│  ┌──────────┬──────────┬──────────┬──────────┬───────────────────┐  │
+│  │  search  │   sug    │   hint   │   nav    │ doc/event/admin   │  │
+│  │  (垂搜)  │(下拉联想) │ (点后推) │(教育页) │ (admin_panel.h   )│  │
+│  └──────────┴──────────┴──────────┴──────────┴───────────────────┘  │
+├─────────────────────────────────────────────────────────────────────┤
+│               framework/ (框架层 · 零改扩展)                          │
+│  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────┐     │
+│  │  Handler   │ │  Session   │ │  Processor   │ │  Server    │     │
+│  │  Manager   │ │  Factory   │ │  Pipeline    │ │  Router    │     │
+│  └────────────┘ └────────────┘ └──────────────┘ └────────────┘     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  RankEngine — 纯计算排序引擎                                  │   │
+│  │  BuildRankInput(session)  →  RankItem[]                     │   │
+│  │  RankEngine::Score(items)  →  Processor 链打分              │   │
+│  │  ApplyRankOutput(session)  ←  排序截断写回                   │   │
+│  │  主框架负责 session I/O，RankEngine 只做纯计算                │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────────┤
+│            lib/ (公共算子库 · 各业务按需调用)                          │
+│  index/  query/  recall/(DAG)  rank/(scorer+reranker)  filter/     │
+│  embedding/  storage/(+ReportStore)  user/  feature/                │
+├─────────────────────────────────────────────────────────────────────┤
+│  scheduler/ (定时任务)  │  cache/ (多级缓存)  │  ab/ (实验框架)      │
+└─────────────────────────┴─────────────────────┴─────────────────────┘
 ```
 
 ---
@@ -200,6 +201,13 @@ BaseHandler::Search(session)                    ← 8 阶段 Pipeline 骨架
     │
     ├── 7. SetResponse           分页截取 + JSON 序列化
     │
+    ├── 7.5 Report               ← 曝光/点击上报（各业务覆写）
+    │       ├── SearchBizHandler  report impression = final_results.size()
+    │       ├── SugBizHandler     report impression = rank_vector.size()
+    │       ├── HintBizHandler    report impression = rank_vector.size()
+    │       └── NavBizHandler     report impression = rank_vector.size()
+    │       └── 异步推入 ReportStore 队列 → 后台线程批量写入 SQLite
+    │
     └── 8. ReportFinal           各阶段耗时日志（ScopeGuard 保证执行）
 ```
 
@@ -232,7 +240,7 @@ MiniSearchRec/
 │   │   ├── hint/                   #   点后推荐（DocCooccurStore）
 │   │   ├── nav/                    #   教育页（热词召回 + 预置词兜底）
 │   │   ├── doc/                    #   文档 CRUD API
-│   │   └── event/                  #   事件接入（5 路数据写入）
+│   │   └── event/                  #   事件接入（5 路数据写入 + click上报到ReportStore）
 │   ├── lib/                        # 公共算子库
 │   │   ├── index/                  #   InvertedIndex(thread-safe) + VectorIndex(Faiss/暴力) + DocStore(thread_local)
 │   │   ├── query/                  #   QueryParser → Normalizer → Expander → Embedding
@@ -242,18 +250,24 @@ MiniSearchRec/
 │   │   ├── rank/reranker/          #   MMR 多样性重排
 │   │   ├── filter/                 #   Dedup / Quality / Spam / Blacklist
 │   │   ├── embedding/              #   ONNX bge-base-zh / Pseudo 降级
-│   │   ├── storage/                #   QueryStatsStore + DocCooccurStore
+│   │   ├── storage/                #   QueryStatsStore + DocCooccurStore + ReportStore
 │   │   └── user/                   #   UserProfile(Proto) + UserEventHandler
 │   ├── scheduler/                  # 后台调度器（单线程事件循环）
 │   │   └── task/                   #   AutoTrain(24h) / IndexRebuild(12h) / TrieRebuild(1h)
-│   ├── gateway/                    # HTTP 网关（cpp-httplib）
+│   ├── gateway/                    # HTTP 网关（cpp-httplib + 嵌入admin_panel.h）
 │   ├── cache/                      # 双层缓存（LRU + Redis）
 │   ├── ab/                         # AB 实验框架（UID 哈希分流）
 │   └── utils/                      # 日志 / 字符串(UTF-8) / 哈希 / 向量运算
+├── scripts/                        # 训练脚本
+│   └── train_rank_model.py         #   LightGBM LambdaRank 训练
 ├── proto/                          # Protobuf 定义（SearchRequest/Response, UserProfile, Document）
 ├── models/bge-base-zh/             # 内置 ONNX Embedding 模型（99MB）
 ├── tests/                          # 集成测试（100+ cases）
-└── data/                           # 示例文档数据
+├── deps/                           # 内嵌依赖
+│   ├── httplib.h                   #   cpp-httplib (header-only)
+│   ├── onnxruntime/                #   ONNX Runtime 预编译库
+│   └── lightgbm/                   #   LightGBM C API 预编译库
+└── data/                           # 运行时数据（docs.db / events.db / train.txt / user_profiles）
 ```
 
 > **153 个源文件 · 16,600+ 行 C++17 代码**

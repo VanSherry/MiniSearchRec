@@ -339,8 +339,8 @@ footer a{font-weight:600}
       <span class="pill" style="background:#07c160;color:#fff;border-color:#07c160">Admin Panel</span>
     </div>
     <div class="stats">
-      <div class="stat-box"><div class="val">153</div><div class="lbl">源文件</div></div>
-      <div class="stat-box"><div class="val">16.6K</div><div class="lbl">行代码</div></div>
+      <div class="stat-box"><div class="val">157</div><div class="lbl">源文件</div></div>
+      <div class="stat-box"><div class="val">18K+</div><div class="lbl">行代码</div></div>
       <div class="stat-box"><div class="val">4</div><div class="lbl">业务接入</div></div>
       <div class="stat-box"><div class="val">768d</div><div class="lbl">Embedding</div></div>
     </div>
@@ -408,6 +408,7 @@ footer a{font-weight:600}
           <div class="arch-chip">REST API</div>
           <div class="arch-chip">请求路由</div>
           <div class="arch-chip">响应序列化</div>
+          <div class="arch-chip hl">admin_panel.h</div>
         </div>
       </div>
       <div class="arch-connector">↓</div>
@@ -434,6 +435,7 @@ footer a{font-weight:600}
           <div class="arch-chip">RankConfigMgr</div>
           <div class="arch-chip">Session</div>
           <div class="arch-chip">AppContext</div>
+          <div class="arch-chip hl">Report() stage</div>
         </div>
       </div>
       <div class="arch-connector">↓</div>
@@ -448,6 +450,7 @@ footer a{font-weight:600}
           <div class="arch-chip">feature/ 特征</div>
           <div class="arch-chip">embedding/ ONNX</div>
           <div class="arch-chip">storage/ 存储</div>
+          <div class="arch-chip hl">ReportStore</div>
           <div class="arch-chip">user/ 画像</div>
         </div>
       </div>
@@ -612,6 +615,13 @@ footer a{font-weight:600}
         </div>
       </div>
       <div class="pipe-stage">
+        <div class="pipe-dot" style="background:#07c160">R</div>
+        <div class="pipe-info">
+          <div class="pipe-name">Report — 曝光/点击上报</div>
+          <div class="pipe-desc">各业务覆写 Report() → 异步推入 ReportStore 队列 → 后台线程批量写入 SQLite</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
         <div class="pipe-dot" style="background:#64748b">8</div>
         <div class="pipe-info">
           <div class="pipe-name">ReportFinal</div>
@@ -633,6 +643,11 @@ footer a{font-weight:600}
       <span class="fw-icon">🗃️</span>
       <h4>EventDB</h4>
       <p>特征快照存储<br>→ 训练样本导出<br>→ LGBM 模型训练</p>
+    </div>
+    <div class="fw-card">
+      <span class="fw-icon">📈</span>
+      <h4>ReportStore</h4>
+      <p>4 业务曝光/点击异步上报<br>→ 管理后台数据看板<br>→ CTR 趋势分析</p>
     </div>
     <div class="fw-card">
       <span class="fw-icon">👤</span>
@@ -903,7 +918,7 @@ postprocess_stages:
 
 <!-- ═══════ Footer ═══════ -->
 <footer>
-  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 153 源文件 · 16,600+ 行 C++17 · DAG纯召回 · RankEngine纯计算 · 0Factory/Context/Args冗余 · Apache License 2.0</p>
+  <p><b>MiniSearchRec</b> v2.0 &nbsp;·&nbsp; 157 源文件 · 18K+ 行 C++17 · DAG纯召回 · RankEngine纯计算 · 嵌入管理后台 · 异步ReportStore · Apache License 2.0</p>
   <p style="margin-top:12px">
     <a href="https://github.com/VanSherry/MiniSearchRec">GitHub</a>
     &nbsp;·&nbsp;
