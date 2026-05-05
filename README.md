@@ -13,7 +13,6 @@
 [![Lines](https://img.shields.io/badge/C%2B%2B_Lines-16%2C600%2B-informational.svg?style=flat-square)](#)
 [![Homepage](https://img.shields.io/badge/Homepage-GitHub_Pages-222.svg?style=flat-square&logo=github)](https://vansherry.github.io/MiniSearchRec/)
 [![Live Demo](https://img.shields.io/badge/Live_Demo-vansherry.online-07c160.svg?style=flat-square&logo=googlechrome)](https://vansherry.online/v2)
-[![Admin](https://img.shields.io/badge/Admin_Panel-v2/msr--admin-07c160.svg?style=flat-square&logo=googlechrome)](https://vansherry.online/v2/msr-admin)
 
 <br/>
 
@@ -22,7 +21,7 @@
 
 <br/>
 
-[**🔍 在线体验**](https://vansherry.online/v2) · [**📊 管理后台**](https://vansherry.online/v2/msr-admin) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口) · [管理后台](#-管理后台) · [调参指南](#%EF%B8%8F-配置参数调参指南)
+[**🔍 在线体验**](https://vansherry.online/v2) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口) · [管理后台](#-管理后台) · [调参指南](#%EF%B8%8F-配置参数调参指南)
 
 </div>
 
