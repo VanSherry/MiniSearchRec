@@ -98,21 +98,38 @@ def main():
     # 数据量小则不划分验证集
     use_val = total >= 10 and len(group) >= 3
     if use_val:
-        split = int(total * 0.8)
-        X_train, y_train = X_arr[:split], y_arr[:split]
-        X_val, y_val = X_arr[split:], y_arr[split:]
-        # 按 query 边界重新计算 groups
-        seen = set()
+        # 按 query 级别划分（保持 query 完整不拆分）
+        unique_qids = sorted(set(qids))
+        split_idx = int(len(unique_qids) * 0.8)
+        train_qids = set(unique_qids[:split_idx])
+        
         train_group = []
         val_group = []
+        train_mask = []
+        for q in qids:
+            if q in train_qids:
+                train_mask.append(True)
+            else:
+                train_mask.append(False)
+        
+        # 按 query 计算 group
+        seen_train, seen_val = set(), set()
         for i, q in enumerate(qids):
-            if q not in seen:
-                seen.add(q)
-                cnt = qids.count(q)
-                if i < split:
+            if q in train_qids:
+                if q not in seen_train:
+                    seen_train.add(q)
+                    cnt = sum(1 for j, qj in enumerate(qids) if qj == q and j < len(qids) and train_mask[j])
                     train_group.append(cnt)
-                else:
+            else:
+                if q not in seen_val:
+                    seen_val.add(q)
+                    cnt = sum(1 for j, qj in enumerate(qids) if qj == q and j < len(qids) and not train_mask[j])
                     val_group.append(cnt)
+        
+        X_train = X_arr[train_mask]
+        y_train = y_arr[train_mask]
+        X_val = X_arr[~np.array(train_mask)]
+        y_val = y_arr[~np.array(train_mask)]
     else:
         X_train, y_train = X_arr, y_arr
         X_val, y_val = None, None
