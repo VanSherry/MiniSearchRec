@@ -22,7 +22,7 @@
 
 <br/>
 
-[**🔍 在线体验**](https://vansherry.online/v2) · [**📊 管理后台**](https://vansherry.online/v2/msr-admin) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口) · [管理后台](#-管理后台)
+[**🔍 在线体验**](https://vansherry.online/v2) · [**📊 管理后台**](https://vansherry.online/v2/msr-admin) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口) · [管理后台](#-管理后台) · [调参指南](#%EF%B8%8F-配置参数调参指南)
 
 </div>
 
@@ -35,7 +35,7 @@
 <td width="50%">
 
 ### 🏗️ 架构设计
-- **Template Method** 主流程骨架（8 阶段 Pipeline）
+- **Template Method** 主流程骨架（9 阶段 Pipeline）
 - **反射注册** 宏 — 新增 Processor 只需 1 行注册
 - **YAML 驱动** — 所有业务路由/Pipeline/定时任务均为配置
 - **三层分离** — `framework/` → `biz/` → `lib/`
@@ -157,10 +157,10 @@ MiniSearchRec 实现了搜索产品的 **完整交互闭环**（参考微信搜�
 
 ---
 
-## 📐 搜索主流程（Template Method · RankEngine 纯计算驱动）
+## 📐 搜索主流程（9 阶段 Pipeline · RankEngine 纯计算驱动）
 
 ```
-BaseHandler::Search(session)                    ← 8 阶段 Pipeline 骨架
+BaseHandler::Search(session)                    ← 9 阶段 Pipeline 骨架
     │
     ├── 0. InitSession          初始化 Session + TraceID + 超时控制
     │
@@ -270,7 +270,7 @@ MiniSearchRec/
 └── data/                           # 运行时数据（docs.db / events.db / train.txt / user_profiles）
 ```
 
-> **153 个源文件 · 16,600+ 行 C++17 代码**
+> **157 个源文件 · 18,000+ 行 C++17 代码**
 
 ---
 
@@ -392,7 +392,6 @@ MiniSearchRec 内嵌了一套完整的 Web 管理后台，零额外部署，启�
 | 环境 | 地址 |
 |------|------|
 | **本地开发** | `http://localhost:8080/admin` |
-| **线上演示** | [https://vansherry.online/v2/msr-admin/](https://vansherry.online/v2/msr-admin/) |
 
 ### 功能面板
 
@@ -416,7 +415,6 @@ MiniSearchRec 内嵌了一套完整的 Web 管理后台，零额外部署，启�
 - 使用 Chart.js（CDN 加载）绘制趋势曲线
 - 所有 Admin API 直接读取内存/SQLite 数据，不走框架 Pipeline
 - 曝光/点击数据通过异步 `ReportStore` 组件上报（独立线程 + 队列 + SQLite 批量写入），不阻塞主流程
-```
 
 ---
 
@@ -450,7 +448,7 @@ vim config/framework.yaml         # businesses[] 中加一条路由
 
 | 模式 | 应用 | 效果 |
 |------|------|------|
-| **Template Method** | `BaseHandler::Search()` 8 阶段骨架 | 业务只需覆写钩子 |
+| **Template Method** | `BaseHandler::Search()` 9 阶段骨架 | 业务只需覆写钩子 |
 | **Strategy** | EmbeddingProvider / 各 Processor | 配置一键切换实现 |
 | **Pipeline** | `ProcessorPipeline` 链式执行 | YAML 驱动编排 |
 | **Registry + Reflection** | `REGISTER_MSR_*` / `REGISTER_RANK_PROCESSOR` 宏 | 配置驱动零代码注册 |
