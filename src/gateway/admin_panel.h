@@ -241,7 +241,7 @@ pre.json-display{background:#f7f7f7;padding:12px;border-radius:8px;overflow:auto
 </div>
 
 <script>
-const BASE = '';
+const BASE = '/msr-admin';
 
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));

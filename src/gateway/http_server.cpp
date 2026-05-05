@@ -23,6 +23,7 @@
 #include <sstream>
 #include <fstream>
 #include <ctime>
+#include <cmath>
 #include <json/json.h>
 #include <yaml-cpp/yaml.h>
 #include <sqlite3.h>
@@ -581,18 +582,61 @@ void HttpServer::RegisterRoutes() {
         res.status = 200;
     });
 
-    // 触发训练数据 Dump
+    // 触发训练数据 Dump（直接 SQL 内联实现，不依赖外部 binary）
     server_->Post("/api/v1/admin/model/dump", [](const auto& /*req*/, auto& res) {
         auto cfg = ReadAutoTrainConfig();
-        scheduler::AutoTrainTask task(cfg);
-        bool ok = task.DumpTrainData();
-
-        Json::Value root;
-        root["ret"] = ok ? 0 : 500;
-        root["err_msg"] = ok ? "" : "Dump failed";
+        std::ofstream out(cfg.train_data_output);
+        if (!out.good()) {
+            Json::Value root; root["ret"] = 500; root["err_msg"] = "Cannot open output file";
+            Json::StreamWriterBuilder w; w["indentation"] = ""; res.set_content(Json::writeString(w, root), "application/json"); res.status = 500; return;
+        }
+        out << "# MiniSearchRec LTR Training Data" << std::endl;
+        out << "# Format: label qid:h 1:f1 2:f2 ... # uid doc_id" << std::endl;
+        out << "# Features: 1:qlen 2:bm25 3:quality 4:freshness 5:log_click 6:log_like" << std::endl;
+        sqlite3* evdb = nullptr;
+        bool ok = false;
+        if (sqlite3_open_v2(cfg.events_db.c_str(), &evdb, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK) {
+            const char* sql = "SELECT e.uid, e.doc_id, e.query, e.bm25_score, e.quality_score, "
+                "e.freshness_score, e.click_count, e.like_count, e.event_type "
+                "FROM search_events e WHERE e.event_type IN ('click','like') ORDER BY e.uid, e.ts";
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(evdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+                int count = 0;
+                while (sqlite3_step(stmt) == SQLITE_ROW) {
+                    const char* uid = (const char*)sqlite3_column_text(stmt, 0);
+                    const char* doc_id = (const char*)sqlite3_column_text(stmt, 1);
+                    const char* query = (const char*)sqlite3_column_text(stmt, 2);
+                    double bm25 = sqlite3_column_double(stmt, 3);
+                    double quality = sqlite3_column_double(stmt, 4);
+                    double freshness = sqlite3_column_double(stmt, 5);
+                    double click_cnt = (double)sqlite3_column_int64(stmt, 6);
+                    double like_cnt = (double)sqlite3_column_int64(stmt, 7);
+                    const char* etype = (const char*)sqlite3_column_text(stmt, 8);
+                    int label = (strcmp(etype, "click") == 0) ? 2 : 1;
+                    double qlen = strlen(query ? query : "");
+                    double qlen_norm = tanh(qlen / 20.0);
+                    double log_click = tanh(log(click_cnt + 1) / 5.0);
+                    double log_like = tanh(log(like_cnt + 1) / 5.0);
+                    unsigned int qid_hash = 5381;
+                    const char* s = query; if (s) { int c; while ((c = *s++)) qid_hash = ((qid_hash << 5) + qid_hash) + c; }
+                    s = uid; if (s) { int c; while ((c = *s++)) qid_hash = ((qid_hash << 5) + qid_hash) + c; }
+                    out << label << " qid:" << qid_hash
+                        << " 1:" << qlen_norm << " 2:" << bm25 << " 3:" << quality
+                        << " 4:" << freshness << " 5:" << log_click << " 6:" << log_like
+                        << " # " << (uid ? uid : "") << " " << (doc_id ? doc_id : "") << std::endl;
+                    count++;
+                }
+                sqlite3_finalize(stmt);
+                out << "# Total samples: " << count << std::endl;
+                ok = (count > 0);
+            }
+            sqlite3_close(evdb);
+        }
+        out.close();
+        Json::Value root; root["ret"] = ok ? 0 : 500;
+        root["err_msg"] = ok ? "" : "Dump failed (no events found)";
         root["output"] = cfg.train_data_output;
-        Json::StreamWriterBuilder w; w["indentation"] = "";
-        res.set_content(Json::writeString(w, root), "application/json");
+        Json::StreamWriterBuilder w; w["indentation"] = ""; res.set_content(Json::writeString(w, root), "application/json");
         res.status = ok ? 200 : 500;
     });
 

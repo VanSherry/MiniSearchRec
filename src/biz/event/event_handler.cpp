@@ -366,9 +366,9 @@ std::string EventHandler::QueryEventsAsJson(const std::string& uid,
         j["doc_id"]       = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         j["event_type"]   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         j["query"]        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        j["result_pos"]   = sqlite3_column_int(stmt, 4);
-        j["duration_ms"]  = sqlite3_column_int(stmt, 5);
-        j["ts"]           = sqlite3_column_int64(stmt, 6);
+        j["result_pos"]   = (int)sqlite3_column_int(stmt, 4);
+        j["duration_ms"]  = (int)sqlite3_column_int(stmt, 5);
+        { auto _v = sqlite3_column_int64(stmt, 6); j["ts"] = (Json::Value::Int64)_v; }
         items.append(std::move(j));
     }
 
