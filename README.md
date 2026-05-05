@@ -13,6 +13,7 @@
 [![Lines](https://img.shields.io/badge/C%2B%2B_Lines-16%2C600%2B-informational.svg?style=flat-square)](#)
 [![Homepage](https://img.shields.io/badge/Homepage-GitHub_Pages-222.svg?style=flat-square&logo=github)](https://vansherry.github.io/MiniSearchRec/)
 [![Live Demo](https://img.shields.io/badge/Live_Demo-vansherry.online-07c160.svg?style=flat-square&logo=googlechrome)](https://vansherry.online/v2)
+[![Admin](https://img.shields.io/badge/Admin_Panel-v2/msr--admin-07c160.svg?style=flat-square&logo=googlechrome)](https://vansherry.online/v2/msr-admin)
 
 <br/>
 
@@ -21,7 +22,7 @@
 
 <br/>
 
-[**🔍 在线体验**](https://vansherry.online/v2) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口)
+[**🔍 在线体验**](https://vansherry.online/v2) · [**📊 管理后台**](https://vansherry.online/v2/msr-admin) · [**📄 项目主页**](https://vansherry.github.io/MiniSearchRec/) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [交互闭环](#-用户交互闭环) · [技术亮点](#-技术亮点) · [API 文档](#-api-接口) · [管理后台](#-管理后台)
 
 </div>
 
@@ -315,8 +316,29 @@ make test_all -j$(nproc)
 | `/api/v1/doc/add` | POST | 添加文档（同时建索引） |
 | `/api/v1/doc/update` | PUT | 更新文档 |
 | `/api/v1/doc/delete` | DELETE | 删除文档 |
-| `/api/v1/event/click` | POST | 上报点击事件 |
+| `/api/v1/doc/get` | GET | 查询文档详情 |
+| `/api/v1/doc/list` | GET | 分页列出文档摘要 |
+| `/api/v1/event/click` | POST | 上报点击事件（支持 `biz_type` 字段） |
 | `/api/v1/event/like` | POST | 上报点赞事件 |
+
+### 管理后台
+
+| 接口 | 方法 | 说明 |
+|------|:----:|------|
+| `/admin` | GET | 嵌入式管理后台页面（WeChat 风格） |
+| `/api/v1/admin/dashboard` | GET | 系统总览（文档/索引/统计数量） |
+| `/api/v1/admin/stats/query` | GET | 搜索词统计（支持前缀匹配和 TopN） |
+| `/api/v1/admin/stats/cooccur` | GET | 文档共现数据查询 |
+| `/api/v1/admin/sug/trie` | GET | SugTrie 索引内容查询 |
+| `/api/v1/admin/events` | GET | 用户事件日志查询 |
+| `/api/v1/admin/scheduler/status` | GET | 调度任务状态（3 个后台任务） |
+| `/api/v1/admin/abtest` | GET | A/B 实验概览 |
+| `/api/v1/admin/report/timeseries` | GET | 4 业务面板曝光/点击/CTR 时间序列 |
+| `/api/v1/admin/model/status` | GET | 模型状态（训练数据/模型文件/事件数） |
+| `/api/v1/admin/model/dump` | POST | 触发训练数据导出 |
+| `/api/v1/admin/model/train` | POST | 触发模型训练（LightGBM LambdaRank） |
+| `/api/v1/admin/index/rebuild` | POST | 触发索引全量重建（原子切换） |
+| `/api/v1/admin/sug/trie/rebuild` | POST | 触发 SugTrie 重建 |
 | `/api/v1/admin/reload_model` | POST | 精排模型热更新 |
 | `/health` | GET | 健康检查 + 索引统计 |
 
@@ -340,6 +362,46 @@ curl -X POST http://localhost:8080/api/v1/doc/add \
 curl -X POST http://localhost:8080/api/v1/event/click \
   -H 'Content-Type: application/json' \
   -d '{"uid": "user_001", "doc_id": "doc_001", "query": "深度学习", "result_pos": 0}'
+
+# 打开管理后台
+open http://localhost:8080/admin
+```
+
+---
+
+## 📊 管理后台
+
+MiniSearchRec 内嵌了一套完整的 Web 管理后台，零额外部署，启动即用。
+
+### 访问方式
+
+| 环境 | 地址 |
+|------|------|
+| **本地开发** | `http://localhost:8080/admin` |
+| **线上演示** | [https://vansherry.online/v2/msr-admin/](https://vansherry.online/v2/msr-admin/) |
+
+### 功能面板
+
+| 面板 | 内容 |
+|------|------|
+| **数据看板** | 4 个业务（搜索/建议/推荐/导航）的曝光量、点击量、CTR 趋势曲线图 |
+| **系统总览** | 文档数、倒排词数、向量数、搜索词统计、共现记录、SugTrie 词条 |
+| **文档管理** | 分页浏览文档列表 + 点击查看文档详情（完整 JSON） |
+| **搜索词统计** | 前缀匹配查询 / TopN 热词查询 |
+| **SugTrie** | Trie 索引内容查询 + 手动重建按钮 |
+| **行为链 / 共现** | 按 uid 查看用户点击行为链（doc → doc 序列），按 doc_id 查共现 |
+| **事件日志** | 按 uid/事件类型筛选用户行为事件 |
+| **调度任务** | 3 个后台任务状态 + 触发索引重建 / Trie 重建按钮 |
+| **模型管理** | 模型状态（训练数据/模型文件/事件数）+ Dump / 训练 / 热加载按钮 |
+| **A/B 实验** | 实验列表 + 按 uid 查看分组 |
+
+### 技术实现
+
+- 单页 HTML 完全**内嵌在 C++ 源代码**中（`src/gateway/admin_panel.h`）
+- 零前端构建工具、零 npm、零额外静态文件
+- 使用 Chart.js（CDN 加载）绘制趋势曲线
+- 所有 Admin API 直接读取内存/SQLite 数据，不走框架 Pipeline
+- 曝光/点击数据通过异步 `ReportStore` 组件上报（独立线程 + 队列 + SQLite 批量写入），不阻塞主流程
 ```
 
 ---

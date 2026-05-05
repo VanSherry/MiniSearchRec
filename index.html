@@ -336,6 +336,7 @@ footer a{font-weight:600}
       <span class="pill">DAG Recall</span>
       <span class="pill">RankEngine</span>
       <span class="pill">LGBM+ONNX</span>
+      <span class="pill" style="background:#07c160;color:#fff;border-color:#07c160">Admin Panel</span>
     </div>
     <div class="stats">
       <div class="stat-box"><div class="val">153</div><div class="lbl">源文件</div></div>
@@ -839,6 +840,18 @@ postprocess_stages:
           <td>uid, doc_id</td>
         </tr>
         <tr>
+          <td><span class="api-path">/api/v1/doc/get</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>查询文档详情</td>
+          <td>doc_id</td>
+        </tr>
+        <tr>
+          <td><span class="api-path">/api/v1/doc/list</span></td>
+          <td><span class="method get">GET</span></td>
+          <td>分页列出文档摘要</td>
+          <td>page, page_size</td>
+        </tr>
+        <tr>
           <td><span class="api-path">/api/v1/admin/reload_model</span></td>
           <td><span class="method post">POST</span></td>
           <td>精排模型热更新</td>
@@ -852,6 +865,39 @@ postprocess_stages:
         </tr>
       </tbody>
     </table>
+  </div>
+</section>
+
+<!-- ═══════ Admin Panel ═══════ -->
+<section class="sec" id="admin" style="background:var(--bg2);max-width:100%;padding-left:calc((100% - 1080px)/2);padding-right:calc((100% - 1080px)/2)">
+  <div class="sec-head">
+    <h2><span class="bar"></span>管理后台</h2>
+    <p>嵌入式 Web 管理面板，零额外部署。WeChat 风格 UI，4 业务面板 + 系统大盘 + 运维操作。</p>
+  </div>
+  <div style="max-width:1080px">
+    <div class="biz-grid" style="margin-bottom:20px">
+      <div class="biz-card">
+        <div class="biz-title"><div class="icon" style="background:var(--g1)">📊</div><h3>数据看板</h3></div>
+        <div class="desc">4 个业务 Tab 切换，各面板独立展示曝光/点击/CTR 趋势曲线，支持按小时/天切换时间粒度</div>
+      </div>
+      <div class="biz-card">
+        <div class="biz-title"><div class="icon" style="background:#3b82f6">📋</div><h3>运维管理</h3></div>
+        <div class="desc">文档 CRUD、索引/Trie 手动重建、模型 Dump→训练→热加载 全流程、调度任务状态监控</div>
+      </div>
+      <div class="biz-card">
+        <div class="biz-title"><div class="icon" style="background:#8b5cf6">🔍</div><h3>数据观察</h3></div>
+        <div class="desc">搜索词统计、SugTrie 内容、文档共现、用户行为链可视化、事件日志查询、A/B 实验概览</div>
+      </div>
+      <div class="biz-card">
+        <div class="biz-title"><div class="icon" style="background:#f59e0b">⚡</div><h3>异步上报</h3></div>
+        <div class="desc">曝光/点击数据通过异步 ReportStore 上报，独立线程 + 队列 + SQLite 批量写入，不阻塞搜索主流程</div>
+      </div>
+    </div>
+    <p style="text-align:center;margin-top:16px">
+      <a href="https://vansherry.online/v2/msr-admin/" class="pill solid" style="display:inline-block;margin-bottom:8px">📊 打开管理后台</a>
+      <br>
+      <code style="font-size:.75rem">本地: http://localhost:8080/admin ｜ 线上: /v2/msr-admin/</code>
+    </p>
   </div>
 </section>
 
