@@ -15,13 +15,19 @@
 #include "lib/storage/doc_cooccur_store.h"
 #include "lib/storage/report_store.h"
 #include "scheduler/task/index_rebuild_task.h"
+#include "scheduler/task/auto_train_task.h"
 #include "framework/app_context.h"
 #include "framework/config/config_manager.h"
 #include "ab/ab_test.h"
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <ctime>
 #include <json/json.h>
+#include <yaml-cpp/yaml.h>
+#include <sqlite3.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace minisearchrec {
 
@@ -498,6 +504,111 @@ void HttpServer::RegisterRoutes() {
         std::string json = ReportStore::Instance().QueryTimeSeries(biz, hours, bucket_sec);
         res.set_content(json, "application/json");
         res.status = 200;
+    });
+
+    // ── 模型管理接口（训练数据 Dump / 训练 / 热更新）──
+
+    // 辅助：读取 AutoTrain 配置
+    static auto ReadAutoTrainConfig = []() -> scheduler::AutoTrainConfig {
+        scheduler::AutoTrainConfig cfg;
+        std::string config_dir = ConfigManager::Instance().GetConfigDir();
+        if (config_dir.empty()) config_dir = "./config";
+        std::string yaml_path = config_dir + "/framework.yaml";
+        try {
+            auto root = YAML::LoadFile(yaml_path);
+            auto node = root["background"]["auto_train"];
+            if (node) {
+                cfg.dump_tool         = node["dump_tool"].as<std::string>("./build/dump_train_data");
+                cfg.train_script      = node["train_script"].as<std::string>("./scripts/train_rank_model.py");
+                cfg.model_output      = node["model_output"].as<std::string>("./models/rank_model.txt");
+                cfg.events_db         = node["events_db"].as<std::string>("./data/events.db");
+                cfg.docs_db           = node["docs_db"].as<std::string>("./data/docs.db");
+                cfg.train_data_output = node["train_data_output"].as<std::string>("./data/train.txt");
+            }
+        } catch (...) {}
+        // 修正路径：config 中的路径基于项目根目录，但服务从 build/ 启动时需调整。
+        // 检查路径是否存在，不存在则尝试加 ../ 前缀
+        auto fix_path = [](std::string& p) {
+            if (p.empty()) return;
+            // 如果以 ./ 开头且文件不存在，尝试从项目根目录查找
+            if (p.find("./") == 0) {
+                std::ifstream f(p);
+                if (!f.good()) {
+                    std::string alt = "../" + p.substr(2);
+                    std::ifstream f2(alt);
+                    if (f2.good()) p = alt;
+                } else { f.close(); }
+            }
+        };
+        fix_path(cfg.dump_tool);
+        fix_path(cfg.train_script);
+        fix_path(cfg.model_output);
+        fix_path(cfg.events_db);
+        fix_path(cfg.docs_db);
+        fix_path(cfg.train_data_output);
+        return cfg;
+    };
+
+    // 模型状态查询
+    server_->Get("/api/v1/admin/model/status", [](const auto& /*req*/, auto& res) {
+        auto cfg = ReadAutoTrainConfig();
+
+        Json::Value data;
+        data["train_data_exists"] = std::ifstream(cfg.train_data_output).good();
+        data["model_exists"]      = std::ifstream(cfg.model_output).good();
+        data["train_data_path"]   = cfg.train_data_output;
+        data["model_path"]        = cfg.model_output;
+        data["dump_tool"]         = cfg.dump_tool;
+        data["train_script"]      = cfg.train_script;
+
+        // 事件数量
+        int event_count = 0;
+        sqlite3* db = nullptr;
+        if (sqlite3_open_v2(cfg.events_db.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK) {
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM search_events", -1, &stmt, nullptr) == SQLITE_OK) {
+                if (sqlite3_step(stmt) == SQLITE_ROW) event_count = sqlite3_column_int(stmt, 0);
+                sqlite3_finalize(stmt);
+            }
+            sqlite3_close(db);
+        }
+        data["event_count"] = event_count;
+
+        Json::Value root;
+        root["ret"] = 0; root["err_msg"] = ""; root["data"] = std::move(data);
+        Json::StreamWriterBuilder w; w["indentation"] = "";
+        res.set_content(Json::writeString(w, root), "application/json");
+        res.status = 200;
+    });
+
+    // 触发训练数据 Dump
+    server_->Post("/api/v1/admin/model/dump", [](const auto& /*req*/, auto& res) {
+        auto cfg = ReadAutoTrainConfig();
+        scheduler::AutoTrainTask task(cfg);
+        bool ok = task.DumpTrainData();
+
+        Json::Value root;
+        root["ret"] = ok ? 0 : 500;
+        root["err_msg"] = ok ? "" : "Dump failed";
+        root["output"] = cfg.train_data_output;
+        Json::StreamWriterBuilder w; w["indentation"] = "";
+        res.set_content(Json::writeString(w, root), "application/json");
+        res.status = ok ? 200 : 500;
+    });
+
+    // 触发模型训练
+    server_->Post("/api/v1/admin/model/train", [](const auto& /*req*/, auto& res) {
+        auto cfg = ReadAutoTrainConfig();
+        scheduler::AutoTrainTask task(cfg);
+        bool ok = task.RunTrainScript();
+
+        Json::Value root;
+        root["ret"] = ok ? 0 : 500;
+        root["err_msg"] = ok ? "" : "Training failed";
+        root["output"] = cfg.model_output;
+        Json::StreamWriterBuilder w; w["indentation"] = "";
+        res.set_content(Json::writeString(w, root), "application/json");
+        res.status = ok ? 200 : 500;
     });
 
     // ── Admin 接口（模型热更新，走框架统一入口）──

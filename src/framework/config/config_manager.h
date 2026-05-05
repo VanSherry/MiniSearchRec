@@ -72,6 +72,8 @@ public:
 
     bool IsLoaded() const { return loaded_; }
 
+    std::string GetConfigDir() const { return config_dir_; }
+
     bool Reload();
 
 private:

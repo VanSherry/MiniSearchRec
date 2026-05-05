@@ -2,6 +2,9 @@
 #include "utils/logger.h"
 #include <cmath>
 #include <fstream>
+#ifdef HAVE_LIGHTGBM
+#include <LightGBM/c_api.h>
+#endif
 
 namespace minisearchrec {
 
@@ -22,7 +25,8 @@ static BoosterPtr LoadFromFile(const std::string& path) {
     f.close();
 #ifdef HAVE_LIGHTGBM
     void* raw = nullptr;
-    if (LGBM_BoosterLoadModelFromFile(path.c_str(), &raw) != 0 || !raw) {
+    int out_num_class = 0;
+    if (LGBM_BoosterCreateFromModelfile(path.c_str(), &out_num_class, &raw) != 0 || !raw) {
         LOG_ERROR("LGBMRank: LoadModelFromFile failed: {}", path);
         return BoosterPtr(nullptr, BoosterDeleter{});
     }

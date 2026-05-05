@@ -21,58 +21,63 @@ const std::string kAdminHtml = R"html(
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f6fa;color:#333;padding:20px}
-h1{font-size:22px;margin-bottom:20px;color:#2c3e50}
-h2{font-size:16px;margin-bottom:10px;color:#2c3e50}
-.nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
-.nav a{padding:8px 16px;background:#fff;border-radius:6px;text-decoration:none;color:#555;font-size:13px;cursor:pointer;border:1px solid #e0e0e0}
-.nav a:hover,.nav a.active{background:#3498db;color:#fff;border-color:#3498db}
-.section{display:none;background:#fff;border-radius:8px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;background:#EDEDED;color:#333;padding:16px;max-width:1200px;margin:0 auto}
+h1{font-size:20px;margin-bottom:16px;color:#191919;font-weight:600;letter-spacing:-0.3px}
+h2{font-size:15px;margin-bottom:10px;color:#191919;font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;padding:10px 12px;background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.nav a{padding:6px 14px;border-radius:6px;text-decoration:none;color:#666;font-size:13px;cursor:pointer;transition:all .15s}
+.nav a:hover{background:#f0f0f0}
+.nav a.active{background:#07C160;color:#fff;font-weight:500}
+.section{display:none;background:#fff;border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .section.active{display:block}
-.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-.stat-card{background:#f8f9fa;border-radius:6px;padding:16px;text-align:center}
-.stat-card .num{font-size:28px;font-weight:700;color:#2c3e50}
-.stat-card .label{font-size:12px;color:#888;margin-top:4px}
-.monitor-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
-.monitor-card{background:linear-gradient(135deg,#667eea,#764ba2);border-radius:8px;padding:20px;color:#fff}
-.monitor-card:nth-child(2){background:linear-gradient(135deg,#f093fb,#f5576c)}
-.monitor-card:nth-child(3){background:linear-gradient(135deg,#4facfe,#00f2fe)}
-.monitor-card .m-num{font-size:32px;font-weight:700}
-.monitor-card .m-label{font-size:13px;opacity:.85;margin-top:4px}
-.monitor-card .m-sub{font-size:12px;opacity:.7;margin-top:2px}
-.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.chart-box{background:#f8f9fa;border-radius:6px;padding:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.stat-card{background:#f7f7f7;border-radius:8px;padding:14px;text-align:center}
+.stat-card .num{font-size:26px;font-weight:600;color:#191919}
+.stat-card .label{font-size:12px;color:#999;margin-top:4px}
+.monitor-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.monitor-card{background:#fff;border-radius:10px;padding:16px;border:1px solid #eee}
+.monitor-card .m-num{font-size:28px;font-weight:700;color:#07C160}
+.monitor-card:nth-child(2) .m-num{color:#FA5151}
+.monitor-card:nth-child(3) .m-num{color:#1485EE}
+.monitor-card .m-label{font-size:13px;color:#666;margin-top:2px}
+.monitor-card .m-sub{font-size:11px;color:#b2b2b2;margin-top:2px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chart-box{background:#f7f7f7;border-radius:8px;padding:12px}
 .chart-box.full{grid-column:1/-1}
-.chart-box h3{font-size:13px;color:#555;margin-bottom:8px}
-.chart-box canvas{max-height:220px}
-.biz-tabs a{padding:6px 14px;background:#fff;border-radius:4px;text-decoration:none;color:#555;font-size:13px;cursor:pointer;border:1px solid #e0e0e0}
-.biz-tabs a:hover,.biz-tabs a.active{background:#3498db;color:#fff;border-color:#3498db}
+.chart-box h3{font-size:12px;color:#666;margin-bottom:8px;font-weight:500}
+.chart-box canvas{max-height:200px}
+.biz-tabs{display:flex;gap:4px;margin-bottom:12px;padding:4px;background:#f7f7f7;border-radius:8px}
+.biz-tabs a{padding:6px 14px;border-radius:6px;text-decoration:none;color:#666;font-size:13px;cursor:pointer;transition:all .15s;flex:1;text-align:center}
+.biz-tabs a:hover{color:#333}
+.biz-tabs a.active{background:#fff;color:#07C160;font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .toolbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.toolbar input,.toolbar select{padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px}
-.toolbar button{padding:6px 14px;background:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px}
-.toolbar button:hover{background:#2980b9}
-.toolbar button.danger{background:#e74c3c}
-.toolbar button.danger:hover{background:#c0392b}
-.toolbar button.success{background:#27ae60}
-.toolbar button.success:hover{background:#219a52}
+.toolbar input,.toolbar select{padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;background:#fff;color:#333;outline:none;transition:border-color .15s}
+.toolbar input:focus,.toolbar select:focus{border-color:#07C160}
+.toolbar button{padding:7px 16px;background:#07C160;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;transition:background .15s}
+.toolbar button:hover{background:#06AD56}
+.toolbar button.danger{background:#FA5151}
+.toolbar button.danger:hover{background:#E24747}
+.toolbar button.success{background:#07C160}
+.toolbar button.success:hover{background:#06AD56}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #eee;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
-th{background:#f8f9fa;font-weight:600;color:#555;position:sticky;top:0}
-tr:hover{background:#f0f7ff}
-.pagination{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px}
-.pagination button{padding:4px 10px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer}
-.pagination button:hover{background:#eee}
-.empty{color:#999;font-size:13px;padding:20px 0}
-.loading{color:#999;font-size:13px;padding:10px 0}
-.error{color:#e74c3c;padding:10px;background:#fdf0ef;border-radius:4px;margin:8px 0;font-size:13px}
-.tip{color:#999;font-size:12px;margin-bottom:8px}
-.toggle-detail{color:#3498db;cursor:pointer;font-size:12px;margin-left:4px}
-pre.json-display{background:#f8f9fa;padding:12px;border-radius:4px;overflow:auto;max-height:400px;font-size:12px;line-height:1.5}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #f0f0f0;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+th{background:#fafafa;font-weight:500;color:#666;position:sticky;top:0;font-size:12px}
+tr:hover{background:#f7f7f7}
+.pagination{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px;color:#999}
+.pagination button{padding:5px 12px;border:1px solid #e0e0e0;border-radius:6px;background:#fff;cursor:pointer;color:#333;font-size:12px;transition:all .15s}
+.pagination button:hover{background:#f7f7f7;border-color:#07C160;color:#07C160}
+.pagination button:disabled{opacity:.4;cursor:default}
+.empty{color:#b2b2b2;font-size:13px;padding:20px 0;text-align:center}
+.loading{color:#b2b2b2;font-size:13px;padding:10px 0;text-align:center}
+.error{color:#FA5151;padding:10px 14px;background:#fff0f0;border-radius:8px;margin:8px 0;font-size:13px}
+.tip{color:#b2b2b2;font-size:12px;margin-bottom:8px;line-height:1.5}
+.toggle-detail{color:#07C160;cursor:pointer;font-size:12px;margin-left:4px}
+pre.json-display{background:#f7f7f7;padding:12px;border-radius:8px;overflow:auto;max-height:400px;font-size:12px;line-height:1.5;color:#333}
 </style>
 </head>
 <body>
 
-<h1>🔍 MiniSearchRec 管理后台</h1>
+<h1 style="display:flex;align-items:center;gap:8px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#07C160"/><path d="M7.5 11.5l3 3 6-6" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>MiniSearchRec 管理后台</h1>
 
 <div class="nav">
   <a onclick="showSection('monitor')">数据看板</a>
@@ -113,9 +118,9 @@ pre.json-display{background:#f8f9fa;padding:12px;border-radius:4px;overflow:auto
     <div class="monitor-card"><div class="m-num">-</div><div class="m-label">曝光点击率 (CTR)</div><div class="m-sub">点击 / 曝光</div></div>
   </div>
   <div class="chart-grid">
-    <div class="chart-box full"><h3>曝光与点击趋势</h3><canvas id="chart-main"></canvas></div>
-    <div class="chart-box"><h3>点击量趋势</h3><canvas id="chart-clicks"></canvas></div>
-    <div class="chart-box"><h3>CTR 趋势</h3><canvas id="chart-ctr"></canvas></div>
+    <div class="chart-box"><h3>曝光趋势</h3><canvas id="chart-impressions"></canvas></div>
+    <div class="chart-box"><h3>点击趋势</h3><canvas id="chart-clicks"></canvas></div>
+    <div class="chart-box full"><h3>CTR 趋势</h3><canvas id="chart-ctr"></canvas></div>
   </div>
 </div>
 
@@ -214,6 +219,14 @@ pre.json-display{background:#f8f9fa;padding:12px;border-radius:4px;overflow:auto
   <div class="toolbar" style="margin-top:12px">
     <button class="danger" onclick="triggerRebuild('index')">触发索引重建</button>
     <button class="success" onclick="triggerRebuild('trie')">触发 Trie 重建</button>
+  </div>
+  <hr style="border:none;border-top:1px solid #f0f0f0;margin:16px 0">
+  <h2>模型管理</h2>
+  <div id="model-status" class="loading">加载中...</div>
+  <div class="toolbar" style="margin-top:12px">
+    <button onclick="triggerModel('dump')">Dump 训练数据</button>
+    <button onclick="triggerModel('train')">训练模型</button>
+    <button onclick="triggerModel('reload')">热加载模型</button>
   </div>
 </div>
 
@@ -480,6 +493,7 @@ function loadScheduler() {
         el.innerHTML += html;
       }
     });
+    loadModelStatus();
 }
 
 function triggerRebuild(type) {
@@ -490,6 +504,36 @@ function triggerRebuild(type) {
     .then(r => r.json()).then(d => {
       alert(d.ret === 0 ? names[type] + ' 重建成功' : '重建失败: ' + d.err_msg);
       loadScheduler();
+    });
+}
+
+// ===== 模型管理 =====
+function loadModelStatus() {
+  fetch(BASE + '/api/v1/admin/model/status')
+    .then(r => r.json()).then(d => {
+      const el = document.getElementById('model-status');
+      if (d.ret !== 0) { el.innerHTML = '<div class="error">' + d.err_msg + '</div>'; return; }
+      const data = d.data;
+      let html = '<table><thead><tr><th>配置项</th><th>值</th></tr></thead><tbody>';
+      html += `<tr><td>训练数据</td><td>${data.train_data_exists ? '✓ 存在' : '✗ 不存在'} (${esc(data.train_data_path)})</td></tr>`;
+      html += `<tr><td>模型文件</td><td>${data.model_exists ? '✓ 存在' : '✗ 不存在'} (${esc(data.model_path)})</td></tr>`;
+      html += `<tr><td>Dump 工具</td><td>${esc(data.dump_tool)}</td></tr>`;
+      html += `<tr><td>训练脚本</td><td>${esc(data.train_script)}</td></tr>`;
+      html += `<tr><td>事件数量</td><td>${(data.event_count || 0).toLocaleString()}</td></tr>`;
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    });
+}
+
+function triggerModel(action) {
+  const names = { dump: 'Dump 训练数据', train: '训练模型', reload: '热加载模型' };
+  if (!confirm(`确认 ${names[action]}？`)) return;
+  const urls = { dump: '/api/v1/admin/model/dump', train: '/api/v1/admin/model/train', reload: '/api/v1/admin/reload_model' };
+  const body = action === 'reload' ? '{"model_path":"./models/rank_model.txt"}' : '';
+  fetch(BASE + urls[action], { method: 'POST', body, headers: { 'Content-Type': 'application/json' } })
+    .then(r => r.json()).then(d => {
+      alert(d.ret === 0 ? names[action] + ' 成功' : names[action] + ' 失败: ' + d.err_msg);
+      loadModelStatus();
     });
 }
 
@@ -563,47 +607,16 @@ function loadMonitor() {
       Object.values(monitorCharts).forEach(c => { try { c.destroy(); } catch(e) {} });
       monitorCharts = {};
       
-      const makeChart = (id, label, dataArr, color) => new Chart(document.getElementById(id), {
+      const chartOpts = (id, label, dataArr, color) => new Chart(document.getElementById(id), {
         type: 'line',
-        data: {
-          labels,
-          datasets: [
-            ...(dataArr.length > 1 ? [{ label: '曝光', data: impressions, borderColor: '#667eea', backgroundColor: '#667eea20', yAxisID: 'y' }] : []),
-            { label, data: dataArr, borderColor: color, backgroundColor: color + '20', fill: true, tension: 0.3, pointRadius: 2, yAxisID: label.includes('CTR') ? 'y1' : 'y' }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 12, font: { size: 10 } } },
-            y: { beginAtZero: true, ticks: { font: { size: 10 } } },
-            ...(label.includes('CTR') ? { y1: { beginAtZero: true, max: 100, position: 'right', ticks: { font: { size: 10 }, callback: v => v + '%' } } } : {})
-          }
-        }
+        data: { labels, datasets: [{ label, data: dataArr, borderColor: color, backgroundColor: color + '20', fill: true, tension: 0.3, pointRadius: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { x: { ticks: { maxTicksLimit: 12, font: { size: 10 } } }, y: { beginAtZero: true, ticks: { font: { size: 10 } } } } }
       });
       
-      // 主图显示曝光+点击双线
-      if (impressions.length > 0) {
-        const mainCtx = document.getElementById('chart-main');
-        monitorCharts.main = new Chart(mainCtx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [
-              { label: '曝光', data: impressions, borderColor: '#667eea', backgroundColor: '#667eea20', fill: true, tension: 0.3, pointRadius: 2 },
-              { label: '点击', data: clicks, borderColor: '#f5576c', backgroundColor: '#f5576c20', fill: true, tension: 0.3, pointRadius: 2 }
-            ]
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 } } } },
-            scales: { x: { ticks: { maxTicksLimit: 12, font: { size: 10 } } }, y: { beginAtZero: true, ticks: { font: { size: 10 } } } }
-          }
-        });
-      }
-      monitorCharts.clicks = makeChart('chart-clicks', '点击', clicks, '#f5576c');
-      monitorCharts.ctr    = makeChart('chart-ctr', 'CTR %', ctrs, '#4facfe');
+      monitorCharts.impressions = chartOpts('chart-impressions', '曝光量', impressions, '#07C160');
+      monitorCharts.clicks      = chartOpts('chart-clicks',      '点击量', clicks,     '#FA5151');
+      monitorCharts.ctr         = chartOpts('chart-ctr',          'CTR %',  ctrs,       '#1485EE');
     });
 }
 

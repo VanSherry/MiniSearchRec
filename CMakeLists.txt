@@ -153,8 +153,40 @@ find_package(spdlog QUIET)
 find_package(CppJieba QUIET)
 find_package(Faiss QUIET)
 
-# LightGBM（可选，brew install lightgbm）
-if(APPLE)
+# LightGBM（可选：依赖排序 内置库 > brew > pkg-config）
+# 内置预编译库位于 deps/lightgbm/
+#   结构: deps/lightgbm/include/  → 头文件
+#          deps/lightgbm/lib/<arch>/ → 预编译 .dylib/.so
+set(_LGBM_DEPS_DIR "${CMAKE_SOURCE_DIR}/deps/lightgbm")
+
+# --- 优先级 1: deps/lightgbm/ 内置库 ---
+if(EXISTS "${_LGBM_DEPS_DIR}/include/LightGBM/c_api.h")
+    set(LIGHTGBM_INCLUDE "${_LGBM_DEPS_DIR}/include")
+    if(APPLE)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+            set(_LGBM_LIB_DIR "${_LGBM_DEPS_DIR}/lib/macos-arm64")
+        else()
+            set(_LGBM_LIB_DIR "${_LGBM_DEPS_DIR}/lib/macos-x64")
+        endif()
+    elseif(UNIX)
+        set(_LGBM_LIB_DIR "${_LGBM_DEPS_DIR}/lib/linux-x64")
+    endif()
+    find_library(LIGHTGBM_LIB _lightgbm PATHS "${_LGBM_LIB_DIR}" NO_DEFAULT_PATH)
+    if(LIGHTGBM_LIB)
+        set(LightGBM_FOUND TRUE)
+        add_definitions(-DHAVE_LIGHTGBM)
+        message(STATUS "LightGBM found in deps/ (bundled)")
+        message(STATUS "  include: ${LIGHTGBM_INCLUDE}")
+        message(STATUS "  lib: ${LIGHTGBM_LIB}")
+        include_directories(${LIGHTGBM_INCLUDE})
+        # 设置 RPATH 以便运行时找到 deps 中的 .dylib
+        set(CMAKE_INSTALL_RPATH "${_LGBM_LIB_DIR};$ORIGIN/../lib")
+        set(CMAKE_BUILD_RPATH "${_LGBM_LIB_DIR}")
+    endif()
+endif()
+
+# --- 优先级 2: brew install lightgbm ---
+if(NOT LightGBM_FOUND AND APPLE)
     list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}/opt/lightgbm")
     find_library(LIGHTGBM_LIB lib_lightgbm
         HINTS "${HOMEBREW_PREFIX}/opt/lightgbm/lib"
@@ -164,7 +196,7 @@ if(APPLE)
         HINTS "${HOMEBREW_PREFIX}/opt/lightgbm/include"
               "${HOMEBREW_PREFIX}/include"
     )
-else()
+elseif(NOT LightGBM_FOUND)
     find_library(LIGHTGBM_LIB lib_lightgbm HINTS /usr/local/lib /usr/lib)
     find_path(LIGHTGBM_INCLUDE LightGBM/c_api.h
         HINTS /usr/local/include /usr/include)
@@ -175,10 +207,10 @@ if(LIGHTGBM_LIB AND LIGHTGBM_INCLUDE)
     add_definitions(-DHAVE_LIGHTGBM)
     message(STATUS "LightGBM found: ${LIGHTGBM_LIB}")
     include_directories(${LIGHTGBM_INCLUDE})
-else()
+elseif(NOT LightGBM_FOUND)
     set(LightGBM_FOUND FALSE)
     message(STATUS "LightGBM not found, using built-in rule tree fallback")
-    message(STATUS "  To enable: brew install lightgbm")
+    message(STATUS "  To enable: bundle deps/lightgbm/ or brew install lightgbm")
 endif()
 
 message(STATUS "yaml-cpp version: ${yaml-cpp_VERSION}")

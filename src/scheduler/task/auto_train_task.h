@@ -36,11 +36,14 @@ public:
 
     int64_t LastRunEpoch() const override { return last_run_epoch_; }
 
-private:
-    int CountEvents();
+    // 手动触发训练流程的各步骤（管理后台用）
     bool DumpTrainData();
     bool RunTrainScript();
     bool HotReloadModel();
+    const AutoTrainConfig& GetConfig() const { return cfg_; }
+
+private:
+    int CountEvents();
 
     AutoTrainConfig cfg_;
     std::chrono::steady_clock::time_point last_run_ = std::chrono::steady_clock::now();
